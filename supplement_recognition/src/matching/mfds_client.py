@@ -6,14 +6,15 @@ from typing import Optional
 
 import httpx
 
-_BASE_URL = "http://apis.data.go.kr/1471000/HtfsInfoService03"
+_BASE_URL = "https://apis.data.go.kr/1471000/HtfsInfoService03"
 
 
 @dataclass
 class MfdsProduct:
-    product_code: str
-    product_name: str
-    functional_ingredients: list[str]
+    product_code: str   # STTEMNT_NO
+    product_name: str   # PRDUCT
+    manufacturer: str   # ENTRPS
+    main_function: str  # MAIN_FNCTN
 
 
 def search_product(product_name: str) -> Optional[MfdsProduct]:
@@ -27,12 +28,12 @@ def search_product(product_name: str) -> Optional[MfdsProduct]:
         "type": "json",
         "numOfRows": 5,
         "pageNo": 1,
-        "PRDT_NM": product_name,
+        "PRDUCT": product_name,
     }
 
     try:
         response = httpx.get(
-            f"{_BASE_URL}/getHtfsItem03",
+            f"{_BASE_URL}/getHtfsItem01",
             params=params,
             timeout=10.0,
         )
@@ -41,15 +42,12 @@ def search_product(product_name: str) -> Optional[MfdsProduct]:
         items = body.get("body", {}).get("items", [])
         if not items:
             return None
-        item = items[0]
+        item = items[0].get("item", {})
         return MfdsProduct(
-            product_code=item.get("PRDT_NO", ""),
-            product_name=item.get("PRDT_NM", product_name),
-            functional_ingredients=_parse_ingredients(item.get("MTRAL_NM", "")),
+            product_code=item.get("STTEMNT_NO", ""),
+            product_name=item.get("PRDUCT", product_name).strip(),
+            manufacturer=item.get("ENTRPS", ""),
+            main_function=item.get("MAIN_FNCTN", ""),
         )
     except Exception:
         return None
-
-
-def _parse_ingredients(raw: str) -> list[str]:
-    return [s.strip() for s in raw.split(",") if s.strip()]

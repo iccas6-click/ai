@@ -16,5 +16,5 @@ def match_and_enrich(product: SupplementProduct) -> SupplementProduct:
             "product_code": mfds.product_code,
             "product_name": mfds.product_name,
             "confidence": 0.85,
-        }
+        },
     )
