@@ -1,0 +1,17 @@
+.venv/
+.cache/
+artifacts/
+outputs/
+official_code/
+aihub_official_code/
+datasets/*
+!datasets/.gitignore
+!datasets/README.md
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+.env
+.DS_Store

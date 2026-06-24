@@ -8,9 +8,39 @@ CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 
 
 ```text
 ai/
-├── pill_recognition/          # 의약품 및 알약 인식 파이프라인
-├── supplement_recognition/    # 건강기능식품 라벨 인식 파이프라인
+├── .venv/                    # 저장소 전용 Python 3.11 환경, Git 제외
+├── datasets/                 # 로컬 학습·평가 데이터, 내용 Git 제외
+├── training/                 # 학습 설정과 데이터 변환·평가 스크립트
+├── requirements/             # 런타임·학습 의존성
+├── inference/                # 학습과 분리된 기존 추론 서비스
+│   ├── artifacts/            # 추론 모델 가중치, Git 제외
+│   ├── aihub_official_code/  # AI Hub 공식 배포 파일, Git 제외
+│   ├── outputs/              # 추론 결과, Git 제외
+│   ├── pill_recognition/     # 의약품 및 알약 인식 런타임
+│   └── supplement_recognition/
 └── README.md
+```
+
+학습 데이터의 구체적인 배치 규칙은 [`datasets/README.md`](./datasets/README.md), RTMDet 단일 클래스 학습 흐름은 [`training/rtmdet_single_class/README.md`](./training/rtmdet_single_class/README.md)를 따릅니다.
+
+## 현재 구현 상태
+
+`pill-baseline` 브랜치에는 다음 기능이 구현되어 있습니다.
+
+- 한 이미지에서 최대 10개 알약을 `pill` 단일 클래스로 탐지
+- RTMDet-tiny 기반 Bounding Box 생성
+- 알약별 Crop을 AI Hub ResNet152로 1,000종 재분류
+- 선택적으로 EfficientNet-B0 118종 결과를 비교 신호로 제공
+- 탐지·AI Hub·EfficientNet 후보와 confidence를 JSON으로 반환
+- 결과 이미지에 알약 번호와 Bounding Box 표시
+- Gradio 이미지 업로드 데모
+
+실행 방법과 환경 구성은 [`inference/pill_recognition/README.md`](./inference/pill_recognition/README.md)를 참고합니다.
+
+```bash
+cd /home/gyuha_lee/pill/code/ai/inference
+source ../.venv/bin/activate
+python -m pill_recognition.app
 ```
 
 ## 공통 처리 흐름
@@ -38,7 +68,7 @@ flowchart LR
 
 ## 의약품 인식 파이프라인
 
-위치: [`pill_recognition/`](./pill_recognition/)
+위치: [`inference/pill_recognition/`](./inference/pill_recognition/)
 
 ### 입력
 
@@ -55,10 +85,12 @@ flowchart TD
     C --> D{"입력 형태"}
     D -->|"알약 낱알"| E["RTMDet-tiny 알약 탐지"]
     E --> F["Bounding Box 기준 Crop"]
-    F --> G["EfficientNet-B0 후보 분류"]
-    D -->|"포장·용기"| H["OCR 텍스트 추출"]
+    F --> G["AI Hub ResNet152 1,000종 후보 분류"]
+    F --> H["EfficientNet-B0 118종 선택 검증"]
+    D -->|"포장·용기"| O["OCR 텍스트 추출"]
     G --> I["각인·색상·모양 메타데이터 결합"]
-    H --> J["제품명·함량 후보 추출"]
+    H --> I
+    O --> J["제품명·함량 후보 추출"]
     I --> K["의약품 제품 DB 검색"]
     J --> K
     K --> L["제품 후보 재정렬"]
@@ -69,8 +101,9 @@ flowchart TD
 
 | 구분 | 용도 |
 |---|---|
-| RTMDet-tiny | 이미지 내 알약 탐지 및 Bounding Box 생성 |
-| EfficientNet-B0 | 잘린 알약 이미지의 제품 후보 분류 및 재검증 |
+| RTMDet-tiny 단일 클래스 | 제품 종류와 무관하게 이미지 내 알약 위치 탐지 및 Bounding Box 생성 |
+| AI Hub ResNet152 class01 | 잘린 알약 이미지의 1,000종 K-ID Top-3 분류 |
+| EfficientNet-B0 | 118종 범위에서 선택적으로 후보 재검증 |
 | OCR | 의약품 포장과 용기의 제품명·함량 추출 |
 | AI-Hub 알약 이미지 데이터 | 탐지 및 분류 모델 학습·평가 |
 | 식약처 의약품 데이터 | 제품 코드, 제품명, 주성분, 함량 및 외형 정보 대조 |
@@ -111,7 +144,7 @@ flowchart TD
 
 ## 건강기능식품 인식 파이프라인
 
-위치: [`supplement_recognition/`](./supplement_recognition/)
+위치: [`inference/supplement_recognition/`](./inference/supplement_recognition/)
 
 ### 입력
 
