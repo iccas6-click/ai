@@ -4,13 +4,13 @@ from src.matching.mfds_client import search_product
 from src.schema.result import SupplementProduct
 
 
-def match_and_enrich(product_name: str) -> SupplementProduct:
-    """제품명으로 DB 검색 후 SupplementProduct 반환."""
-    mfds = search_product(product_name)
+def match_and_enrich(ocr_text: str) -> SupplementProduct:
+    """OCR 텍스트로 FULLTEXT + RapidFuzz 매칭 후 SupplementProduct 반환."""
+    mfds = search_product(ocr_text)
 
     if mfds is None:
         return SupplementProduct(
-            product_name=product_name,
+            product_name=ocr_text[:100],
             confidence=0.5,
         )
 

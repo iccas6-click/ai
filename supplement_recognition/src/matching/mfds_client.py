@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import mysql.connector
+from rapidfuzz import fuzz
 
 
 @dataclass
@@ -27,32 +28,44 @@ def _get_conn():
     )
 
 
-def search_product(product_name: str) -> Optional[MfdsProduct]:
-    """로컬 DB에서 제품명 부분 일치 검색. 없으면 None 반환."""
+def search_product(ocr_text: str, top_k: int = 30) -> Optional[MfdsProduct]:
+    """
+    1단계: FULLTEXT로 OCR 텍스트 기반 후보 top_k개 추출
+    2단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
+    """
     try:
         conn = _get_conn()
         cursor = conn.cursor(dictionary=True)
+
+        # FULLTEXT 후보 추출
         cursor.execute(
-            "SELECT sttemnt_no, prduct, entrps, main_fnctn, base_standard "
+            "SELECT sttemnt_no, prduct, entrps, main_fnctn, base_standard, "
+            "MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) AS score "
             "FROM supplement_info "
-            "WHERE prduct LIKE %s "
-            "ORDER BY CHAR_LENGTH(prduct) ASC "
-            "LIMIT 1",
-            (f"%{product_name}%",),
+            "WHERE MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) "
+            "ORDER BY score DESC "
+            "LIMIT %s",
+            (ocr_text, ocr_text, top_k),
         )
-        row = cursor.fetchone()
+        candidates = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        if not row:
+        if not candidates:
             return None
 
+        # RapidFuzz로 재정렬
+        best = max(
+            candidates,
+            key=lambda r: fuzz.partial_ratio(ocr_text, r["prduct"]),
+        )
+
         return MfdsProduct(
-            product_code=row["sttemnt_no"],
-            product_name=row["prduct"].strip(),
-            manufacturer=row["entrps"],
-            main_function=row["main_fnctn"],
-            base_standard=row["base_standard"],
+            product_code=best["sttemnt_no"],
+            product_name=best["prduct"].strip(),
+            manufacturer=best["entrps"],
+            main_function=best["main_fnctn"],
+            base_standard=best["base_standard"],
         )
     except Exception:
         return None
