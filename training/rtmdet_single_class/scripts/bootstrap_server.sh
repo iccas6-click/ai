@@ -36,7 +36,6 @@ if not torch.cuda.is_available():
 print(f"PyTorch {torch.__version__}, GPU: {torch.cuda.get_device_name(0)}")
 PY
 
-export HF_XET_HIGH_PERFORMANCE="${HF_XET_HIGH_PERFORMANCE:-1}"
 .venv/bin/python -m training.rtmdet_single_class.scripts.download_datasets synthetic-v3
 .venv/bin/python -m training.rtmdet_single_class.scripts.prepare_single_class \
   datasets/raw/healtheat-pill-synthetic-v3/extracted
