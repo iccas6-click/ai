@@ -28,6 +28,7 @@ SSH 연결이 끊겨도 계속 실행되도록 `tmux` 안에서 시작합니다.
 tmux new -s click-pill
 cd ~/ai
 bash training/rtmdet_single_class/scripts/run_training.sh \
+  --num-workers 4 \
   2>&1 | tee training/runs/server-training.log
 ```
 

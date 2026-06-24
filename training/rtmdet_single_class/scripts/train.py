@@ -60,6 +60,12 @@ def main() -> None:
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=None,
+        help="Override dataloader workers. Use 0 for WSL and 4 or more on Linux.",
+    )
+    parser.add_argument(
         "--no-pretrained",
         action="store_true",
         help="Train from random initialization instead of the RTMDet v4 checkpoint.",
@@ -69,6 +75,16 @@ def main() -> None:
     cfg = Config.fromfile(args.config)
     cfg.launcher = "none"
     cfg.resume = args.resume
+    if args.num_workers is not None:
+        if args.num_workers < 0:
+            parser.error("--num-workers must be zero or greater")
+        for dataloader in (
+            cfg.train_dataloader,
+            cfg.val_dataloader,
+            cfg.test_dataloader,
+        ):
+            dataloader.num_workers = args.num_workers
+            dataloader.persistent_workers = args.num_workers > 0
     if not args.resume and not args.no_pretrained:
         source_checkpoint = ensure_source_checkpoint()
         cfg.load_from = str(adapt_checkpoint(source_checkpoint, ADAPTED_CHECKPOINT))
@@ -77,13 +93,15 @@ def main() -> None:
         cfg.work_dir = str(PROJECT_ROOT / "training" / "runs" / "smoke")
         cfg.train_cfg.max_epochs = 1
         cfg.train_dataloader.batch_size = 1
-        cfg.train_dataloader.num_workers = 0
-        cfg.train_dataloader.persistent_workers = False
+        if args.num_workers is None:
+            cfg.train_dataloader.num_workers = 0
+            cfg.train_dataloader.persistent_workers = False
         cfg.train_dataloader.dataset.indices = 8
         cfg.train_dataloader.dataset.pipeline = cfg.train_pipeline_stage2
         cfg.val_dataloader.batch_size = 1
-        cfg.val_dataloader.num_workers = 0
-        cfg.val_dataloader.persistent_workers = False
+        if args.num_workers is None:
+            cfg.val_dataloader.num_workers = 0
+            cfg.val_dataloader.persistent_workers = False
         cfg.val_dataloader.dataset.indices = 4
         cfg.test_dataloader = cfg.val_dataloader
         cfg.default_hooks.logger.interval = 1
