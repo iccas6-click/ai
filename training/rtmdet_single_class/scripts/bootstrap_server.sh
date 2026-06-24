@@ -16,7 +16,11 @@ if ! command -v uv >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 fi
 
-uv venv --python 3.11 .venv
+if [[ ! -x .venv/bin/python ]]; then
+  uv venv --python 3.11 .venv
+else
+  echo "Reusing existing virtual environment: $PROJECT_ROOT/.venv"
+fi
 uv pip install --python .venv/bin/python \
   "torch==2.1.0+cu118" "torchvision==0.16.0+cu118" \
   --index-url https://download.pytorch.org/whl/cu118
@@ -32,6 +36,7 @@ if not torch.cuda.is_available():
 print(f"PyTorch {torch.__version__}, GPU: {torch.cuda.get_device_name(0)}")
 PY
 
+export HF_XET_HIGH_PERFORMANCE="${HF_XET_HIGH_PERFORMANCE:-1}"
 .venv/bin/python -m training.rtmdet_single_class.scripts.download_datasets synthetic-v3
 .venv/bin/python -m training.rtmdet_single_class.scripts.prepare_single_class \
   datasets/raw/healtheat-pill-synthetic-v3/extracted
