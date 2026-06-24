@@ -49,9 +49,22 @@ def format_candidates(candidates) -> str:
     if not candidates:
         return "-"
     return "\n".join(
-        f"{candidate.rank}. {candidate.class_name} ({candidate.confidence:.3f})"
+        f"{candidate.rank}. {format_candidate_identity(candidate)} ({candidate.confidence:.3f})"
         for candidate in candidates
     )
+
+
+def format_candidate_identity(candidate) -> str:
+    parts = [candidate.class_name]
+    for value in (
+        candidate.product_name,
+        candidate.company,
+        candidate.item_seq,
+        candidate.etc_otc_code,
+    ):
+        if value:
+            parts.append(value)
+    return " | ".join(parts)
 
 
 def build_app() -> gr.Blocks:
@@ -78,7 +91,7 @@ def build_app() -> gr.Blocks:
                 "번호",
                 "BBox x1,y1,x2,y2",
                 "탐지 confidence",
-                "AI Hub Top-3",
+                "AI Hub Top-3 제품 후보",
                 "GitHub CNN 옵션",
                 "상태",
             ],

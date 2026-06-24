@@ -11,6 +11,13 @@ class Candidate:
     class_name: str
     confidence: float
     source: str = ""
+    product_name: str | None = None
+    company: str | None = None
+    item_seq: str | None = None
+    etc_otc_code: str | None = None
+    ingredient: str | None = None
+    chart: str | None = None
+    image_url: str | None = None
 
 
 @dataclass

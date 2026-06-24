@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,18 @@ from torchvision import models, transforms
 from .schemas import Candidate
 
 
+@dataclass(frozen=True)
+class AIHubProductInfo:
+    pill_id: str
+    product_name: str | None = None
+    company: str | None = None
+    item_seq: str | None = None
+    etc_otc_code: str | None = None
+    ingredient: str | None = None
+    chart: str | None = None
+    image_url: str | None = None
+
+
 class AIHubPillClassifier:
     def __init__(self, weights_path: Path, mapping_path: Path, device: str) -> None:
         if not weights_path.exists() or not mapping_path.exists():
@@ -18,6 +31,10 @@ class AIHubPillClassifier:
 
         self.device = torch.device(device)
         self.class_names = load_aihub_class_names(mapping_path)
+        self.product_master = load_aihub_product_master(
+            mapping_path.parent,
+            set(self.class_names.values()),
+        )
         checkpoint = torch.load(
             weights_path,
             map_location="cpu",
@@ -66,22 +83,74 @@ class AIHubPillClassifier:
 
         predictions = []
         for row_indices, row_values in zip(indices.tolist(), values.tolist()):
-            predictions.append(
-                [
+            row_candidates = []
+            for rank, (class_id, confidence) in enumerate(
+                zip(row_indices, row_values),
+                start=1,
+            ):
+                pill_id = self.class_names[class_id]
+                product = self.product_master.get(pill_id)
+                row_candidates.append(
                     Candidate(
                         rank=rank,
                         class_id=class_id,
-                        class_name=self.class_names[class_id],
+                        class_name=pill_id,
                         confidence=round(float(confidence), 4),
                         source="aihub-resnet152",
+                        product_name=product.product_name if product else None,
+                        company=product.company if product else None,
+                        item_seq=product.item_seq if product else None,
+                        etc_otc_code=product.etc_otc_code if product else None,
+                        ingredient=product.ingredient if product else None,
+                        chart=product.chart if product else None,
+                        image_url=product.image_url if product else None,
                     )
-                    for rank, (class_id, confidence) in enumerate(
-                        zip(row_indices, row_values),
-                        start=1,
-                    )
-                ]
-            )
+                )
+            predictions.append(row_candidates)
         return predictions
+
+
+def load_aihub_product_master(
+    crop_root: Path,
+    pill_ids: set[str] | None = None,
+) -> dict[str, AIHubProductInfo]:
+    if not crop_root.exists():
+        return {}
+
+    target_ids = pill_ids or {
+        path.name for path in crop_root.iterdir() if path.is_dir() and path.name.startswith("K-")
+    }
+    products = {}
+    for pill_id in sorted(target_ids):
+        sample_json = next((crop_root / pill_id).glob("*.json"), None)
+        if sample_json is None:
+            continue
+        try:
+            payload = json.loads(sample_json.read_text(encoding="utf-8"))
+            image_rows = payload.get("images", [])
+            if not image_rows:
+                continue
+            row = image_rows[0]
+        except (OSError, json.JSONDecodeError):
+            continue
+        products[pill_id] = AIHubProductInfo(
+            pill_id=pill_id,
+            product_name=clean_text(row.get("dl_name")),
+            company=clean_text(row.get("dl_company")),
+            item_seq=clean_text(row.get("item_seq")),
+            etc_otc_code=clean_text(row.get("di_etc_otc_code")),
+            ingredient=clean_text(row.get("dl_material")),
+            chart=clean_text(row.get("chart")),
+            image_url=clean_text(row.get("img_key")),
+        )
+    return products
+
+
+def clean_text(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def load_aihub_class_names(path: Path) -> dict[int, str]:
