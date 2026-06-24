@@ -79,7 +79,7 @@ def main() -> None:
         if args.num_workers < 0:
             parser.error("--num-workers must be zero or greater")
         cfg.train_dataloader.num_workers = args.num_workers
-        cfg.train_dataloader.persistent_workers = args.num_workers > 0
+        cfg.train_dataloader.persistent_workers = False
     if not args.resume and not args.no_pretrained:
         source_checkpoint = ensure_source_checkpoint()
         cfg.load_from = str(adapt_checkpoint(source_checkpoint, ADAPTED_CHECKPOINT))
