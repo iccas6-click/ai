@@ -63,7 +63,7 @@ def main() -> None:
         "--num-workers",
         type=int,
         default=None,
-        help="Override dataloader workers. Use 0 for WSL and 4 or more on Linux.",
+        help="Override train dataloader workers. Use 0 for WSL and 4 or more on Linux.",
     )
     parser.add_argument(
         "--no-pretrained",
@@ -78,13 +78,8 @@ def main() -> None:
     if args.num_workers is not None:
         if args.num_workers < 0:
             parser.error("--num-workers must be zero or greater")
-        for dataloader in (
-            cfg.train_dataloader,
-            cfg.val_dataloader,
-            cfg.test_dataloader,
-        ):
-            dataloader.num_workers = args.num_workers
-            dataloader.persistent_workers = args.num_workers > 0
+        cfg.train_dataloader.num_workers = args.num_workers
+        cfg.train_dataloader.persistent_workers = args.num_workers > 0
     if not args.resume and not args.no_pretrained:
         source_checkpoint = ensure_source_checkpoint()
         cfg.load_from = str(adapt_checkpoint(source_checkpoint, ADAPTED_CHECKPOINT))
