@@ -1,65 +1,32 @@
 from __future__ import annotations
 
-import json
 import os
+from pathlib import Path
 
-import anthropic
+from google import genai
+from google.genai import types
+from PIL import Image
 
-from src.ocr.reader import OcrResult
-from src.schema.result import FunctionalIngredient, SupplementProduct
+_PROMPT = """\
+이 건강기능식품 이미지에서 제품명만 추출해줘.
 
-_SYSTEM_PROMPT = """\
-You are a structured data extractor for Korean health supplement labels.
-Given OCR text from a label image, extract:
-- product_name: exact product name as written
-- functional_ingredients: list of functional ingredients with name, amount, unit, and the exact evidence_text from the OCR that supports each field
+규칙:
+- 이미지에 명시된 제품명만 반환할 것.
+- 브랜드명, 부제목, 용량 등은 제외하고 핵심 제품명만.
+- 제품명 텍스트만 응답할 것. 설명 없이.
 
-Rules:
-- Only extract information explicitly present in the OCR text. Do not infer or guess.
-- If amount or unit is not found, set them to null.
-- evidence_text must be a verbatim substring from the OCR text.
-- Respond with JSON only, no commentary.
-
-Output schema:
-{
-  "product_name": "string",
-  "functional_ingredients": [
-    {
-      "name": "string",
-      "amount": number | null,
-      "unit": "string | null",
-      "evidence_text": "string"
-    }
-  ]
-}
+예시:
+- "종근당 칼슘앤마그네슘 비타민D 아연 1000mg 180정" → 칼슘앤마그네슘 비타민D 아연
+- "CJ 아이시안 루테인지아잔틴 플러스 케어+" → 아이시안 루테인지아잔틴
 """
 
 
-def extract_from_ocr(ocr_result: OcrResult) -> SupplementProduct:
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+def extract_product_name(image_path: Path | str) -> str:
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    image = Image.open(image_path)
 
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": ocr_result.full_text}],
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[image, _PROMPT],
     )
-
-    raw = message.content[0].text.strip()
-    data = json.loads(raw)
-
-    ingredients = [
-        FunctionalIngredient(
-            name=item["name"],
-            amount=item.get("amount"),
-            unit=item.get("unit"),
-            evidence_text=item["evidence_text"],
-        )
-        for item in data.get("functional_ingredients", [])
-    ]
-
-    return SupplementProduct(
-        product_name=data["product_name"],
-        functional_ingredients=ingredients,
-        confidence=0.0,  # matching 단계에서 갱신
-    )
+    return response.text.strip()

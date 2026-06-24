@@ -23,17 +23,12 @@ class ErrorCode(str, Enum):
     MODEL_INFERENCE_FAILED = "MODEL_INFERENCE_FAILED"
 
 
-class FunctionalIngredient(BaseModel):
-    name: str
-    amount: Optional[float] = None
-    unit: Optional[str] = None
-    evidence_text: str = Field(description="OCR 원문 중 이 성분 정보의 근거가 된 텍스트")
-
-
 class SupplementProduct(BaseModel):
     product_code: Optional[str] = None
     product_name: str
-    functional_ingredients: list[FunctionalIngredient] = Field(default_factory=list)
+    manufacturer: Optional[str] = None
+    main_function: Optional[str] = None
+    base_standard: Optional[str] = None
     confidence: float = Field(ge=0.0, le=1.0)
 
 
