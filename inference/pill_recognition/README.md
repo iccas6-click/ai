@@ -73,7 +73,21 @@ python -m pill_recognition.download_samples --all
 
 ## AI Hub 1,000종 분류기 연결
 
-다음 기본 경로에 공식 class01 가중치와 라벨 매핑을 둡니다.
+AI Hub 공식 20.8GB 패키지는 다음 URL에서 서버가 직접 내려받습니다.
+
+```text
+https://www.aihub.or.kr/file/down.do?fileSn=10697&aiModelFileSn=10697&dataSetSn=576
+```
+
+Linux에서는 CP949 파일명 인코딩을 지정해 압축 해제합니다.
+
+```bash
+unzip -O CP949 <downloaded-package>.zip -d aihub_official_code/package
+```
+
+공식 패키지는 `aihub_official_code/package/평가용 데이터셋/pill_data`에서 자동 탐색합니다. class01 모델은 `proj_pill`, 1,000개 K-ID 매핑은 `pill_data_croped` 아래에 있으며 이미지와 JSON은 약 259만 개입니다.
+
+공식 패키지 경로가 없으면 다음 레거시 경로를 fallback으로 사용합니다.
 
 ```text
 aihub_official_code/docker img/proj_pill/pill_resnet152_dataclass01_aug0.pt

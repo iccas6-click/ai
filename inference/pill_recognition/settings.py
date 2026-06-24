@@ -38,11 +38,38 @@ class Settings:
         aihub_mapping = os.getenv("PILL_AIHUB_MAPPING")
         cnn_weights = os.getenv("PILL_CNN_WEIGHTS")
         cnn_mapping = os.getenv("PILL_CNN_MAPPING")
-        default_aihub_dir = (
+        packaged_aihub_dir = (
+            PROJECT_ROOT
+            / "aihub_official_code"
+            / "package"
+            / "평가용 데이터셋"
+            / "pill_data"
+        )
+        legacy_aihub_dir = (
             PROJECT_ROOT / "aihub_official_code" / "docker img" / "proj_pill"
         )
-        default_aihub_weights = default_aihub_dir / "pill_resnet152_dataclass01_aug0.pt"
-        default_aihub_mapping = default_aihub_dir / "pill_label_path_sharp_score.json"
+        packaged_aihub_weights = (
+            packaged_aihub_dir
+            / "proj_pill"
+            / "pill_resnet152_dataclass01_aug0.pt"
+        )
+        packaged_aihub_mapping = (
+            packaged_aihub_dir
+            / "pill_data_croped"
+            / "pill_label_path_sharp_score.json"
+        )
+        legacy_aihub_weights = legacy_aihub_dir / "pill_resnet152_dataclass01_aug0.pt"
+        legacy_aihub_mapping = legacy_aihub_dir / "pill_label_path_sharp_score.json"
+        default_aihub_weights = (
+            packaged_aihub_weights
+            if packaged_aihub_weights.exists()
+            else legacy_aihub_weights
+        )
+        default_aihub_mapping = (
+            packaged_aihub_mapping
+            if packaged_aihub_mapping.exists()
+            else legacy_aihub_mapping
+        )
         default_cnn_dir = PROJECT_ROOT / "artifacts" / "cnn"
         default_cnn_weights = default_cnn_dir / "cls119_classifier_v4.pt"
         default_cnn_mapping = default_cnn_dir / "class_mapping.csv"
