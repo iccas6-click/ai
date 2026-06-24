@@ -1,3 +1,6 @@
 *
 !.gitignore
 !README.md
+!evaluation/
+evaluation/*
+!evaluation/README.md

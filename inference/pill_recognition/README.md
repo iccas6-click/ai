@@ -48,6 +48,25 @@ CLI 추론:
 python -m pill_recognition.cli path/to/image.png --output outputs/result.png
 ```
 
+폴더 단위 평가:
+
+```bash
+python -m pill_recognition.evaluate_dataset \
+  --images ../datasets/evaluation/real-smartphone/images \
+  --manifest ../datasets/evaluation/real-smartphone/manifest.csv \
+  --output-dir outputs/evaluation/real-smartphone
+```
+
+정답 manifest가 없으면 이미지별 탐지·분류 결과와 annotated 이미지만 저장합니다.
+
+```bash
+python -m pill_recognition.evaluate_dataset \
+  --images artifacts/samples/server-validation \
+  --output-dir outputs/evaluation/server-validation
+```
+
+출력 파일은 `results.json`, `results.csv`, `summary.json`, `annotated/`입니다.
+
 다른 단일 클래스 검출기를 사용할 때는 가중치와 클래스 파일을 함께 지정합니다.
 
 ```bash
