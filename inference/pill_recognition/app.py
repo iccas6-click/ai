@@ -30,16 +30,28 @@ def recognize(image: np.ndarray | None):
         rows.append(
             [
                 detection.pill_id,
-                rtmdet.class_name,
-                rtmdet.confidence,
-                aihub.class_name if aihub else "-",
-                aihub.confidence if aihub else "-",
-                cnn.class_name if cnn else "-",
-                cnn.confidence if cnn else "-",
+                format_bbox(detection.bbox),
+                f"{rtmdet.confidence:.3f}",
+                format_candidates(detection.aihub_candidates),
+                f"{cnn.class_name} ({cnn.confidence:.3f})" if cnn else "-",
                 detection.status,
             ]
         )
     return annotated, rows, result.to_dict()
+
+
+def format_bbox(bbox: tuple[int, int, int, int]) -> str:
+    x1, y1, x2, y2 = bbox
+    return f"{x1},{y1},{x2},{y2}"
+
+
+def format_candidates(candidates) -> str:
+    if not candidates:
+        return "-"
+    return "\n".join(
+        f"{candidate.rank}. {candidate.class_name} ({candidate.confidence:.3f})"
+        for candidate in candidates
+    )
 
 
 def build_app() -> gr.Blocks:
@@ -47,7 +59,10 @@ def build_app() -> gr.Blocks:
     sample_paths = sorted(sample_root.rglob("*.png")) if sample_root.exists() else []
 
     with gr.Blocks(title="CLICK 알약 인식 Baseline") as app:
-        gr.Markdown("# CLICK 알약 인식 Baseline")
+        gr.Markdown(
+            "# CLICK 알약 인식 Baseline\n"
+            "RTMDet 단일 클래스 탐지로 알약 위치를 잡고, 각 crop을 AI Hub ResNet152 1,000종 분류기에 넣어 Top-3 후보를 반환합니다."
+        )
         with gr.Row():
             source = gr.Image(type="numpy", label="여러 알약 사진")
             annotated = gr.Image(type="numpy", label="탐지 결과")
@@ -61,12 +76,10 @@ def build_app() -> gr.Blocks:
         table = gr.Dataframe(
             headers=[
                 "번호",
-                "RTMDet Top-1",
-                "RTMDet confidence",
-                "AI Hub Top-1",
-                "AI Hub confidence",
-                "GitHub CNN Top-1",
-                "GitHub CNN confidence",
+                "BBox x1,y1,x2,y2",
+                "탐지 confidence",
+                "AI Hub Top-3",
+                "GitHub CNN 옵션",
                 "상태",
             ],
             interactive=False,

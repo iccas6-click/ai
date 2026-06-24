@@ -23,7 +23,7 @@ def draw_detections(
             if detection.cnn_candidates
             else detection.rtmdet_candidates[0]
         )
-        label = f"#{detection.pill_id} {top_candidate.confidence:.2f}"
+        label = f"#{detection.pill_id} {top_candidate.class_name} {top_candidate.confidence:.2f}"
         cv2.putText(
             canvas,
             label,
