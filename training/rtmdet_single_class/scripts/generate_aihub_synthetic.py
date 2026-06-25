@@ -47,6 +47,11 @@ def main() -> None:
     parser.add_argument("--max-pills", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--jpeg-quality", type=int, default=92)
+    parser.add_argument(
+        "--background-mode",
+        choices=("realistic", "simple"),
+        default="realistic",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -66,6 +71,7 @@ def main() -> None:
         "image_size": args.image_size,
         "min_pills": args.min_pills,
         "max_pills": args.max_pills,
+        "background_mode": args.background_mode,
         "seed": args.seed,
         "class_count": len(class_index),
         "splits": {},
@@ -79,6 +85,7 @@ def main() -> None:
             image_size=args.image_size,
             min_pills=args.min_pills,
             max_pills=args.max_pills,
+            background_mode=args.background_mode,
             rng=rng,
             jpeg_quality=args.jpeg_quality,
         )
@@ -139,6 +146,7 @@ def generate_split(
     image_size: int,
     min_pills: int,
     max_pills: int,
+    background_mode: str,
     rng: random.Random,
     jpeg_quality: int,
 ) -> dict:
@@ -162,6 +170,7 @@ def generate_split(
             class_names=class_names,
             image_size=image_size,
             pill_count=pill_count,
+            background_mode=background_mode,
             rng=rng,
         )
         image_name = f"aihub_synth_{split}_{image_index:06d}.jpg"
@@ -231,9 +240,10 @@ def synthesize_scene(
     class_names: list[str],
     image_size: int,
     pill_count: int,
+    background_mode: str,
     rng: random.Random,
 ) -> dict:
-    canvas = random_background(image_size, rng)
+    canvas, background_name = random_background(image_size, rng, background_mode)
     placed_boxes: list[tuple[int, int, int, int]] = []
     yolo_labels = []
     pills = []
@@ -273,13 +283,34 @@ def synthesize_scene(
         "metadata": {
             "image_width": image_size,
             "image_height": image_size,
+            "background": background_name,
             "pill_count": len(pills),
             "pills": pills,
         },
     }
 
 
-def random_background(image_size: int, rng: random.Random) -> np.ndarray:
+def random_background(
+    image_size: int,
+    rng: random.Random,
+    mode: str = "realistic",
+) -> tuple[np.ndarray, str]:
+    if mode == "simple":
+        return simple_background(image_size, rng), "simple"
+    style = rng.choice(("wood", "paper", "marble", "fabric", "skin", "countertop"))
+    generators = {
+        "wood": wood_background,
+        "paper": paper_background,
+        "marble": marble_background,
+        "fabric": fabric_background,
+        "skin": skin_background,
+        "countertop": countertop_background,
+    }
+    canvas = generators[style](image_size, rng)
+    return apply_photo_lighting(canvas, rng), style
+
+
+def simple_background(image_size: int, rng: random.Random) -> np.ndarray:
     base_color = np.array(
         [rng.randint(80, 230), rng.randint(80, 230), rng.randint(80, 230)],
         dtype=np.float32,
@@ -314,6 +345,171 @@ def random_background(image_size: int, rng: random.Random) -> np.ndarray:
             cv2.line(canvas, (0, offset), (image_size, offset), line_color, 1)
 
     canvas = cv2.GaussianBlur(canvas, (0, 0), rng.uniform(0.3, 1.2))
+    return np.clip(canvas, 0, 255).astype(np.uint8)
+
+
+def wood_background(image_size: int, rng: random.Random) -> np.ndarray:
+    base = np.array(
+        [rng.randint(92, 138), rng.randint(125, 175), rng.randint(165, 215)],
+        dtype=np.float32,
+    )
+    y = np.linspace(0, 1, image_size)[:, None]
+    x = np.linspace(0, 1, image_size)[None, :]
+    grain = (
+        np.sin((x * rng.uniform(18, 34) + rng.random()) * math.pi * 2) * 12
+        + np.sin((x * rng.uniform(42, 80) + y * rng.uniform(1, 4)) * math.pi * 2) * 5
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    canvas += grain[:, :, None]
+    for _ in range(rng.randint(3, 8)):
+        center = (
+            rng.randint(-image_size // 3, image_size + image_size // 3),
+            rng.randint(0, image_size),
+        )
+        radius = rng.randint(80, 220)
+        color = tuple(int(v) for v in np.clip(base - rng.randint(8, 22), 0, 255))
+        cv2.ellipse(canvas, center, (radius, max(10, radius // 8)), 0, 0, 360, color, 2)
+    return finalize_surface(canvas, rng, noise=7.0, blur=0.6)
+
+
+def paper_background(image_size: int, rng: random.Random) -> np.ndarray:
+    tone = rng.randint(218, 246)
+    base = np.array(
+        [tone - rng.randint(0, 8), tone, tone + rng.randint(0, 5)],
+        dtype=np.float32,
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    for _ in range(260):
+        x1 = rng.randint(0, image_size)
+        y1 = rng.randint(0, image_size)
+        length = rng.randint(12, 80)
+        angle = rng.uniform(-0.4, 0.4)
+        x2 = int(x1 + math.cos(angle) * length)
+        y2 = int(y1 + math.sin(angle) * length)
+        color = tuple(int(v) for v in np.clip(base - rng.randint(8, 22), 0, 255))
+        cv2.line(canvas, (x1, y1), (x2, y2), color, 1)
+    return finalize_surface(canvas, rng, noise=5.0, blur=0.4)
+
+
+def marble_background(image_size: int, rng: random.Random) -> np.ndarray:
+    base = np.array(
+        [rng.randint(188, 226), rng.randint(190, 228), rng.randint(190, 232)],
+        dtype=np.float32,
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    for _ in range(rng.randint(14, 30)):
+        points = []
+        x = rng.randint(-100, image_size + 100)
+        for y in range(-80, image_size + 120, rng.randint(60, 120)):
+            x += rng.randint(-80, 80)
+            points.append((x, y))
+        color = tuple(int(v) for v in np.clip(base - rng.randint(20, 55), 0, 255))
+        for p1, p2 in zip(points, points[1:]):
+            cv2.line(canvas, p1, p2, color, rng.choice((1, 1, 2, 3)))
+    return finalize_surface(canvas, rng, noise=6.0, blur=1.2)
+
+
+def fabric_background(image_size: int, rng: random.Random) -> np.ndarray:
+    base = np.array(
+        [rng.randint(95, 195), rng.randint(105, 205), rng.randint(105, 215)],
+        dtype=np.float32,
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    spacing = rng.randint(8, 18)
+    warp_color = tuple(int(v) for v in np.clip(base + rng.randint(8, 20), 0, 255))
+    weft_color = tuple(int(v) for v in np.clip(base - rng.randint(8, 20), 0, 255))
+    for offset in range(0, image_size, spacing):
+        cv2.line(canvas, (offset, 0), (offset, image_size), warp_color, 1)
+        cv2.line(canvas, (0, offset), (image_size, offset), weft_color, 1)
+    canvas = cv2.GaussianBlur(canvas, (0, 0), 0.8)
+    return finalize_surface(canvas, rng, noise=9.0, blur=0.5)
+
+
+def skin_background(image_size: int, rng: random.Random) -> np.ndarray:
+    base = np.array(
+        [rng.randint(120, 178), rng.randint(155, 205), rng.randint(185, 235)],
+        dtype=np.float32,
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    center = (
+        rng.randint(image_size // 4, image_size * 3 // 4),
+        image_size + rng.randint(40, 180),
+    )
+    for radius in range(rng.randint(180, 240), image_size + 360, rng.randint(44, 72)):
+        color = tuple(int(v) for v in np.clip(base - rng.randint(8, 28), 0, 255))
+        cv2.ellipse(canvas, center, (radius, max(24, radius // 5)), 0, 190, 350, color, 1)
+    for _ in range(rng.randint(12, 24)):
+        x1 = rng.randint(0, image_size)
+        y1 = rng.randint(0, image_size)
+        x2 = min(image_size, max(0, x1 + rng.randint(-180, 180)))
+        y2 = min(image_size, max(0, y1 + rng.randint(-80, 80)))
+        color = tuple(int(v) for v in np.clip(base - rng.randint(5, 18), 0, 255))
+        cv2.line(canvas, (x1, y1), (x2, y2), color, 1)
+    return finalize_surface(canvas, rng, noise=7.0, blur=1.0)
+
+
+def countertop_background(image_size: int, rng: random.Random) -> np.ndarray:
+    base = np.array(
+        [rng.randint(120, 205), rng.randint(125, 210), rng.randint(125, 210)],
+        dtype=np.float32,
+    )
+    canvas = np.zeros((image_size, image_size, 3), dtype=np.float32)
+    canvas[:] = base
+    speckle = np.random.default_rng(rng.randint(0, 2**32 - 1)).normal(
+        0,
+        28,
+        (image_size, image_size),
+    )
+    speckle = cv2.GaussianBlur(speckle.astype(np.float32), (0, 0), rng.uniform(1.5, 3.0))
+    canvas += speckle[:, :, None]
+    for _ in range(rng.randint(40, 90)):
+        color = tuple(int(v) for v in np.clip(base + rng.randint(-45, 45), 0, 255))
+        cv2.circle(
+            canvas,
+            (rng.randint(0, image_size), rng.randint(0, image_size)),
+            rng.randint(1, 4),
+            color,
+            -1,
+        )
+    return finalize_surface(canvas, rng, noise=4.0, blur=0.6)
+
+
+def finalize_surface(
+    canvas: np.ndarray,
+    rng: random.Random,
+    noise: float,
+    blur: float,
+) -> np.ndarray:
+    random_noise = np.random.default_rng(rng.randint(0, 2**32 - 1)).normal(
+        0,
+        noise,
+        canvas.shape,
+    )
+    canvas += random_noise
+    if blur > 0:
+        canvas = cv2.GaussianBlur(canvas, (0, 0), blur)
+    return np.clip(canvas, 0, 255).astype(np.uint8)
+
+
+def apply_photo_lighting(canvas: np.ndarray, rng: random.Random) -> np.ndarray:
+    height, width = canvas.shape[:2]
+    y, x = np.ogrid[:height, :width]
+    center_x = rng.uniform(width * 0.25, width * 0.75)
+    center_y = rng.uniform(height * 0.15, height * 0.55)
+    distance = np.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
+    distance = distance / distance.max()
+    vignette = 1.05 - distance * rng.uniform(0.18, 0.38)
+    canvas = np.clip(canvas.astype(np.float32) * vignette[:, :, None], 0, 255)
+    if rng.random() < 0.45:
+        stripe_x = rng.randint(-width // 4, width)
+        sigma = width * rng.uniform(0.12, 0.22)
+        stripe = np.exp(-((x - stripe_x) ** 2) / (2 * sigma**2))
+        canvas += stripe[:, :, None] * rng.uniform(8, 28)
     return np.clip(canvas, 0, 255).astype(np.uint8)
 
 
