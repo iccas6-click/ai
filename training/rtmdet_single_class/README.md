@@ -34,6 +34,38 @@ python -m training.rtmdet_single_class.scripts.prepare_single_class \
 
 누락 라벨과 잘못된 Bounding Box는 모두 0건입니다. 원본 클래스 ID는 전부 `pill=0`으로 변환하며, RTMDet 학습용 COCO JSON도 함께 생성합니다.
 
+## AI Hub 1000종 합성셋 생성
+
+AI Hub 공식 crop 이미지 1000종을 섞어 한 장에 1~10개 알약이 들어간 합성 scene을 생성할 수 있습니다.
+
+```bash
+python -m training.rtmdet_single_class.scripts.generate_aihub_synthetic \
+  --output datasets/processed/rtmdet-aihub-synthetic-max10 \
+  --train-count 8000 \
+  --val-count 1000 \
+  --min-pills 1 \
+  --max-pills 10 \
+  --overwrite
+```
+
+출력 구조는 RTMDet 학습에 바로 사용할 수 있는 형태입니다.
+
+```text
+datasets/processed/rtmdet-aihub-synthetic-max10/
+├── images/train/*.jpg
+├── images/val/*.jpg
+├── labels/train/*.txt          # YOLO pill=0 bbox 라벨
+├── labels/val/*.txt
+├── metadata/train/*.json       # K-ID, 제품명, 품목기준코드, source image
+├── metadata/val/*.json
+├── train_coco.json
+├── val_coco.json
+├── pill.yaml
+└── manifest.json
+```
+
+생성된 라벨은 detector 학습용 단일 클래스 `pill=0`입니다. 제품명과 AI Hub K-ID는 `metadata/`에 보존해 end-to-end 검증용 manifest를 만들 때 사용합니다.
+
 ## 학습
 
 118 클래스 RTMDet v4 체크포인트에서 backbone, neck, box regression 가중치를 재사용하고 118 클래스 분류 출력층은 제거합니다. 새 출력층은 `pill` 한 클래스만 예측합니다.
