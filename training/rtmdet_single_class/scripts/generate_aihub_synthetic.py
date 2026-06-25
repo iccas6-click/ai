@@ -105,9 +105,9 @@ def build_asset_index(aihub_root: Path) -> dict[str, ClassAssets]:
         class_index[class_name] = ClassAssets(
             class_name=class_name,
             image_paths=images,
-            product_name=metadata.get("dl_name"),
-            company=metadata.get("dl_company"),
-            item_seq=metadata.get("item_seq"),
+            product_name=clean_text(metadata.get("dl_name")),
+            company=clean_text(metadata.get("dl_company")),
+            item_seq=clean_text(metadata.get("item_seq")),
         )
     return class_index
 
@@ -122,6 +122,13 @@ def load_product_metadata(class_dir: Path) -> dict:
         return rows[0] if rows else {}
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def clean_text(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def generate_split(
