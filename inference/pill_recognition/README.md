@@ -67,6 +67,17 @@ python -m pill_recognition.evaluate_dataset \
 
 출력 파일은 `results.json`, `results.csv`, `summary.json`, `annotated/`입니다.
 
+RTMDet detector-only 평가:
+
+```bash
+python -m pill_recognition.evaluate_detector \
+  --images ../datasets/processed/rtmdet-single-class/images/val \
+  --labels ../datasets/processed/rtmdet-single-class/labels/val \
+  --output-dir outputs/evaluation/rtmdet-val-800
+```
+
+검증을 빠르게 해볼 때는 `--limit 50`을 붙입니다. 출력은 `results.json`, `results.csv`, `summary.json`이며 IoU 0.5 기준 count accuracy, precision, recall, F1, matched IoU를 기록합니다.
+
 다른 단일 클래스 검출기를 사용할 때는 가중치와 클래스 파일을 함께 지정합니다.
 
 ```bash
