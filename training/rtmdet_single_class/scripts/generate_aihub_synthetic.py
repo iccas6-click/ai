@@ -543,7 +543,9 @@ def extract_foreground_mask(image: np.ndarray) -> np.ndarray:
     )
     background = np.median(border.astype(np.float32), axis=0)
     distance = np.linalg.norm(image.astype(np.float32) - background, axis=2)
-    mask = (distance > 18).astype(np.uint8) * 255
+    mask = (distance > 34).astype(np.uint8) * 255
+    if mask.mean() < 5:
+        mask = (distance > 22).astype(np.uint8) * 255
     if mask.mean() < 8 or mask.mean() > 230:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -555,9 +557,16 @@ def extract_foreground_mask(image: np.ndarray) -> np.ndarray:
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return mask
-    largest = max(contours, key=cv2.contourArea)
+    center = np.array([image.shape[1] / 2, image.shape[0] / 2])
+    largest = max(
+        contours,
+        key=lambda contour: cv2.contourArea(contour)
+        - np.linalg.norm(contour.reshape(-1, 2).mean(axis=0) - center) * 2.0,
+    )
     cleaned = np.zeros_like(mask)
     cv2.drawContours(cleaned, [largest], -1, 255, thickness=-1)
+    cleaned = cv2.erode(cleaned, np.ones((3, 3), np.uint8), iterations=1)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     return cv2.GaussianBlur(cleaned, (5, 5), 0)
 
 
