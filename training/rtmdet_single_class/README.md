@@ -51,7 +51,7 @@ python -m training.rtmdet_single_class.scripts.generate_aihub_synthetic \
 출력 구조는 RTMDet 학습에 바로 사용할 수 있는 형태입니다.
 
 ```text
-datasets/processed/rtmdet-aihub-synthetic-max10/
+datasets/processed/rtmdet-aihub-synthetic-realistic-max10/
 ├── images/train/*.jpg
 ├── images/val/*.jpg
 ├── labels/train/*.txt          # YOLO pill=0 bbox 라벨

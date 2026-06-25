@@ -18,8 +18,12 @@ DETECTOR_EVALUATION_RUNS = {
     / "outputs"
     / "evaluation"
     / "rtmdet-aihub-synthetic-max10-val",
+    "AIHub realistic max10 val 1000": PROJECT_ROOT
+    / "outputs"
+    / "evaluation"
+    / "rtmdet-aihub-synthetic-realistic-max10-val",
 }
-DEFAULT_DETECTOR_EVALUATION = "AIHub synthetic max10 val 1000"
+DEFAULT_DETECTOR_EVALUATION = "AIHub realistic max10 val 1000"
 
 
 @lru_cache(maxsize=1)
