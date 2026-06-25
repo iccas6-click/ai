@@ -12,6 +12,16 @@ from .settings import PROJECT_ROOT
 from .visualization import draw_detections
 
 
+DETECTOR_EVALUATION_RUNS = {
+    "synthetic-v3 val 800": PROJECT_ROOT / "outputs" / "evaluation" / "rtmdet-val-800",
+    "AIHub synthetic max10 val 1000": PROJECT_ROOT
+    / "outputs"
+    / "evaluation"
+    / "rtmdet-aihub-synthetic-max10-val",
+}
+DEFAULT_DETECTOR_EVALUATION = "AIHub synthetic max10 val 1000"
+
+
 @lru_cache(maxsize=1)
 def get_pipeline() -> PillRecognitionPipeline:
     return PillRecognitionPipeline()
@@ -69,18 +79,21 @@ def format_candidate_identity(candidate) -> str:
     return " | ".join(parts)
 
 
-def load_detector_eval_summary() -> dict:
-    summary_path = detector_eval_root() / "summary.json"
+def load_detector_eval_summary(run_name: str = DEFAULT_DETECTOR_EVALUATION) -> dict:
+    summary_path = detector_eval_root(run_name) / "summary.json"
     if not summary_path.exists():
         return {"message": "RTMDet 평가 결과가 아직 없습니다."}
     return json.loads(summary_path.read_text(encoding="utf-8"))
 
 
-def load_detector_eval_images(limit: int = 120) -> list[str]:
-    annotated_dir = detector_eval_root() / "annotated"
+def load_detector_eval_images(
+    run_name: str = DEFAULT_DETECTOR_EVALUATION,
+    limit: int = 120,
+) -> list[str]:
+    annotated_dir = detector_eval_root(run_name) / "annotated"
     if not annotated_dir.exists():
         return []
-    rows = load_detector_eval_rows()
+    rows = load_detector_eval_rows(run_name)
     error_names = [
         row["image"]
         for row in rows
@@ -93,20 +106,31 @@ def load_detector_eval_images(limit: int = 120) -> list[str]:
     return [str(path) for path in paths if path.exists()][:limit]
 
 
-def load_detector_eval_rows() -> list[dict]:
-    result_path = detector_eval_root() / "results.json"
+def load_detector_eval_rows(run_name: str = DEFAULT_DETECTOR_EVALUATION) -> list[dict]:
+    result_path = detector_eval_root(run_name) / "results.json"
     if not result_path.exists():
         return []
     return json.loads(result_path.read_text(encoding="utf-8"))
 
 
-def detector_eval_root() -> Path:
-    return PROJECT_ROOT / "outputs" / "evaluation" / "rtmdet-val-800"
+def detector_eval_root(run_name: str) -> Path:
+    return DETECTOR_EVALUATION_RUNS.get(
+        run_name,
+        DETECTOR_EVALUATION_RUNS[DEFAULT_DETECTOR_EVALUATION],
+    )
 
 
 def build_app() -> gr.Blocks:
     sample_root = PROJECT_ROOT / "artifacts" / "samples"
-    sample_paths = sorted(sample_root.rglob("*.png")) if sample_root.exists() else []
+    sample_paths = (
+        sorted(
+            path
+            for path in sample_root.rglob("*")
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg"}
+        )
+        if sample_root.exists()
+        else []
+    )
 
     with gr.Blocks(title="CLICK 알약 인식 Baseline") as app:
         with gr.Tab("인식 데모"):
@@ -147,20 +171,29 @@ def build_app() -> gr.Blocks:
                 "# RTMDet Validation\n"
                 "초록/빨강은 정답 박스, 주황/자홍은 예측 박스입니다. 빨강과 자홍은 매칭 실패 케이스입니다."
             )
+            detector_run = gr.Dropdown(
+                choices=list(DETECTOR_EVALUATION_RUNS),
+                value=DEFAULT_DETECTOR_EVALUATION,
+                label="평가셋",
+            )
             refresh_button = gr.Button("평가 결과 새로고침")
             detector_summary = gr.JSON(
-                value=load_detector_eval_summary,
+                value=lambda: load_detector_eval_summary(DEFAULT_DETECTOR_EVALUATION),
                 label="summary.json",
             )
             detector_gallery = gr.Gallery(
-                value=load_detector_eval_images,
+                value=lambda: load_detector_eval_images(DEFAULT_DETECTOR_EVALUATION),
                 label="Annotated validation images",
                 columns=3,
                 height=720,
                 show_label=True,
             )
             refresh_button.click(
-                fn=lambda: (load_detector_eval_summary(), load_detector_eval_images()),
+                fn=lambda run_name: (
+                    load_detector_eval_summary(run_name),
+                    load_detector_eval_images(run_name),
+                ),
+                inputs=detector_run,
                 outputs=[detector_summary, detector_gallery],
             )
     return app
