@@ -73,10 +73,12 @@ RTMDet detector-only 평가:
 python -m pill_recognition.evaluate_detector \
   --images ../datasets/processed/rtmdet-single-class/images/val \
   --labels ../datasets/processed/rtmdet-single-class/labels/val \
-  --output-dir outputs/evaluation/rtmdet-val-800
+  --output-dir outputs/evaluation/rtmdet-val-800 \
+  --save-annotated
 ```
 
 검증을 빠르게 해볼 때는 `--limit 50`을 붙입니다. 출력은 `results.json`, `results.csv`, `summary.json`이며 IoU 0.5 기준 count accuracy, precision, recall, F1, matched IoU를 기록합니다.
+`--save-annotated`를 붙이면 Gradio의 `RTMDet 평가` 탭에서 정답 박스와 예측 박스를 직접 확인할 수 있습니다.
 
 다른 단일 클래스 검출기를 사용할 때는 가중치와 클래스 파일을 함께 지정합니다.
 

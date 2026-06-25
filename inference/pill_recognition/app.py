@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from pathlib import Path
 
 import gradio as gr
 import numpy as np
@@ -67,42 +69,100 @@ def format_candidate_identity(candidate) -> str:
     return " | ".join(parts)
 
 
+def load_detector_eval_summary() -> dict:
+    summary_path = detector_eval_root() / "summary.json"
+    if not summary_path.exists():
+        return {"message": "RTMDet 평가 결과가 아직 없습니다."}
+    return json.loads(summary_path.read_text(encoding="utf-8"))
+
+
+def load_detector_eval_images(limit: int = 120) -> list[str]:
+    annotated_dir = detector_eval_root() / "annotated"
+    if not annotated_dir.exists():
+        return []
+    rows = load_detector_eval_rows()
+    error_names = [
+        row["image"]
+        for row in rows
+        if row.get("false_positive", 0) or row.get("false_negative", 0)
+    ]
+    ordered_names = error_names + [
+        row["image"] for row in rows if row["image"] not in set(error_names)
+    ]
+    paths = [annotated_dir / name for name in ordered_names]
+    return [str(path) for path in paths if path.exists()][:limit]
+
+
+def load_detector_eval_rows() -> list[dict]:
+    result_path = detector_eval_root() / "results.json"
+    if not result_path.exists():
+        return []
+    return json.loads(result_path.read_text(encoding="utf-8"))
+
+
+def detector_eval_root() -> Path:
+    return PROJECT_ROOT / "outputs" / "evaluation" / "rtmdet-val-800"
+
+
 def build_app() -> gr.Blocks:
     sample_root = PROJECT_ROOT / "artifacts" / "samples"
     sample_paths = sorted(sample_root.rglob("*.png")) if sample_root.exists() else []
 
     with gr.Blocks(title="CLICK 알약 인식 Baseline") as app:
-        gr.Markdown(
-            "# CLICK 알약 인식 Baseline\n"
-            "RTMDet 단일 클래스 탐지로 알약 위치를 잡고, 각 crop을 AI Hub ResNet152 1,000종 분류기에 넣어 Top-3 후보를 반환합니다."
-        )
-        with gr.Row():
-            source = gr.Image(type="numpy", label="여러 알약 사진")
-            annotated = gr.Image(type="numpy", label="탐지 결과")
-        if sample_paths:
-            gr.Examples(
-                examples=[[str(path)] for path in sample_paths],
-                inputs=source,
-                label=f"테스트 이미지 {len(sample_paths)}장",
+        with gr.Tab("인식 데모"):
+            gr.Markdown(
+                "# CLICK 알약 인식 Baseline\n"
+                "RTMDet 단일 클래스 탐지로 알약 위치를 잡고, 각 crop을 AI Hub ResNet152 1,000종 분류기에 넣어 Top-3 후보를 반환합니다."
             )
-        run_button = gr.Button("알약 인식", variant="primary")
-        table = gr.Dataframe(
-            headers=[
-                "번호",
-                "BBox x1,y1,x2,y2",
-                "탐지 confidence",
-                "AI Hub Top-3 제품 후보",
-                "GitHub CNN 옵션",
-                "상태",
-            ],
-            interactive=False,
-        )
-        raw_result = gr.JSON(label="전체 Top-3 결과")
-        run_button.click(
-            fn=recognize,
-            inputs=source,
-            outputs=[annotated, table, raw_result],
-        )
+            with gr.Row():
+                source = gr.Image(type="numpy", label="여러 알약 사진")
+                annotated = gr.Image(type="numpy", label="탐지 결과")
+            if sample_paths:
+                gr.Examples(
+                    examples=[[str(path)] for path in sample_paths],
+                    inputs=source,
+                    label=f"테스트 이미지 {len(sample_paths)}장",
+                )
+            run_button = gr.Button("알약 인식", variant="primary")
+            table = gr.Dataframe(
+                headers=[
+                    "번호",
+                    "BBox x1,y1,x2,y2",
+                    "탐지 confidence",
+                    "AI Hub Top-3 제품 후보",
+                    "GitHub CNN 옵션",
+                    "상태",
+                ],
+                interactive=False,
+            )
+            raw_result = gr.JSON(label="전체 Top-3 결과")
+            run_button.click(
+                fn=recognize,
+                inputs=source,
+                outputs=[annotated, table, raw_result],
+            )
+
+        with gr.Tab("RTMDet 평가"):
+            gr.Markdown(
+                "# RTMDet Validation\n"
+                "초록/빨강은 정답 박스, 주황/자홍은 예측 박스입니다. 빨강과 자홍은 매칭 실패 케이스입니다."
+            )
+            refresh_button = gr.Button("평가 결과 새로고침")
+            detector_summary = gr.JSON(
+                value=load_detector_eval_summary,
+                label="summary.json",
+            )
+            detector_gallery = gr.Gallery(
+                value=load_detector_eval_images,
+                label="Annotated validation images",
+                columns=3,
+                height=720,
+                show_label=True,
+            )
+            refresh_button.click(
+                fn=lambda: (load_detector_eval_summary(), load_detector_eval_images()),
+                outputs=[detector_summary, detector_gallery],
+            )
     return app
 
 

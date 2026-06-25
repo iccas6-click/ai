@@ -41,6 +41,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--confidence-threshold", type=float)
+    parser.add_argument("--save-annotated", action="store_true")
+    parser.add_argument("--annotated-limit", type=int)
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -59,8 +61,12 @@ def main() -> None:
         image_paths = image_paths[: args.limit]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    annotated_dir = args.output_dir / "annotated"
+    if args.save_annotated:
+        annotated_dir.mkdir(parents=True, exist_ok=True)
+
     rows = []
-    for image_path in image_paths:
+    for index, image_path in enumerate(image_paths):
         image_bgr = cv2.imread(str(image_path))
         if image_bgr is None:
             raise RuntimeError(f"Cannot read image: {image_path}")
@@ -84,6 +90,17 @@ def main() -> None:
         row = build_row(image_path.name, ground_truth, predictions, matches)
         rows.append(row)
         print(json.dumps(row, ensure_ascii=False), flush=True)
+
+        if args.save_annotated and (
+            args.annotated_limit is None or index < args.annotated_limit
+        ):
+            annotated = draw_detector_evaluation(
+                image_bgr,
+                ground_truth,
+                predictions,
+                matches,
+            )
+            cv2.imwrite(str(annotated_dir / image_path.name), annotated)
 
     summary = summarize(rows, args.iou_threshold, settings.confidence_threshold)
     (args.output_dir / "results.json").write_text(
@@ -191,6 +208,63 @@ def build_row(
         "predictions": predictions,
         "matches": [match.__dict__ for match in matches],
     }
+
+
+def draw_detector_evaluation(
+    image_bgr,
+    ground_truth: list[tuple[float, float, float, float]],
+    predictions: list[dict],
+    matches: list[DetectionMatch],
+):
+    canvas = image_bgr.copy()
+    matched_predictions = {match.prediction_index for match in matches}
+    matched_ground_truth = {match.ground_truth_index for match in matches}
+
+    for index, box in enumerate(ground_truth):
+        color = (34, 197, 94) if index in matched_ground_truth else (0, 0, 255)
+        draw_box(canvas, box, color, f"GT {index + 1}")
+
+    for index, prediction in enumerate(predictions):
+        color = (0, 165, 255) if index in matched_predictions else (255, 0, 255)
+        confidence = prediction.get("confidence", 0.0)
+        draw_box(canvas, prediction["bbox"], color, f"P {index + 1} {confidence:.2f}")
+
+    cv2.putText(
+        canvas,
+        "GT=green/red  Pred=orange/magenta",
+        (16, 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (255, 255, 255),
+        3,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        canvas,
+        "GT=green/red  Pred=orange/magenta",
+        (16, 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (0, 0, 0),
+        1,
+        cv2.LINE_AA,
+    )
+    return canvas
+
+
+def draw_box(image, box, color, label: str) -> None:
+    x1, y1, x2, y2 = (int(round(value)) for value in box)
+    cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+    cv2.putText(
+        image,
+        label,
+        (x1, max(24, y1 - 8)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
 
 
 def summarize(rows: list[dict], iou_threshold: float, confidence_threshold: float) -> dict:
