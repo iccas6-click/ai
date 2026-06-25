@@ -5,6 +5,11 @@
 import json
 import sys
 import os
+import warnings
+import logging
+
+warnings.filterwarnings("ignore")
+logging.disable(logging.WARNING)
 
 os.chdir(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ".")

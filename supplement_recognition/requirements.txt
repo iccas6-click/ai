@@ -1,4 +1,5 @@
 easyocr==1.7.2
+openai>=1.30.0
 rapidfuzz==3.10.1
 Pillow==10.4.0
 numpy==1.26.4

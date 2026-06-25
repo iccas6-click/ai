@@ -28,16 +28,15 @@ def _get_conn():
     )
 
 
-def search_product(ocr_text: str, top_k: int = 30) -> Optional[MfdsProduct]:
+def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
     """
-    1단계: FULLTEXT로 OCR 텍스트 기반 후보 top_k개 추출
+    1단계: FULLTEXT로 제품명 기반 후보 top_k개 추출
     2단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
     """
     try:
         conn = _get_conn()
         cursor = conn.cursor(dictionary=True)
 
-        # FULLTEXT 후보 추출
         cursor.execute(
             "SELECT sttemnt_no, prduct, entrps, main_fnctn, base_standard, "
             "MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) AS score "
@@ -45,7 +44,7 @@ def search_product(ocr_text: str, top_k: int = 30) -> Optional[MfdsProduct]:
             "WHERE MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) "
             "ORDER BY score DESC "
             "LIMIT %s",
-            (ocr_text, ocr_text, top_k),
+            (product_name, product_name, top_k),
         )
         candidates = cursor.fetchall()
         cursor.close()
@@ -54,10 +53,9 @@ def search_product(ocr_text: str, top_k: int = 30) -> Optional[MfdsProduct]:
         if not candidates:
             return None
 
-        # RapidFuzz로 재정렬
         best = max(
             candidates,
-            key=lambda r: fuzz.partial_ratio(ocr_text, r["prduct"]),
+            key=lambda r: fuzz.partial_ratio(product_name, r["prduct"]),
         )
 
         return MfdsProduct(

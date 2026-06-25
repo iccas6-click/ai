@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.ocr.reader import extract_text
+from src.extraction.llm_extractor import extract_product_name
 from src.matching.matcher import match_and_enrich
 from src.schema.result import (
     ErrorCode,
@@ -39,11 +40,22 @@ def recognize(image_path: Path | str, request_id: str | None = None) -> Suppleme
             error_code=ErrorCode.OCR_TEXT_NOT_FOUND,
         )
 
-    # 2. FULLTEXT + RapidFuzz로 DB 매칭
-    product = match_and_enrich(ocr_text)
+    # 2. Gemini로 OCR 텍스트에서 제품명 추출
+    try:
+        product_name = extract_product_name(ocr_text)
+    except Exception as e:
+        return SupplementRecognitionResult(
+            request_id=rid,
+            status=RecognitionStatus.FAILED,
+            error_code=ErrorCode.MODEL_INFERENCE_FAILED,
+            error_detail=str(e),
+        )
+
+    # 3. FULLTEXT + RapidFuzz로 DB 매칭
+    product = match_and_enrich(product_name)
 
     if product.product_code is None:
-        warnings = ["DB에서 일치하는 제품을 찾지 못했습니다."]
+        warnings = [f"'{product_name}' 제품을 DB에서 찾지 못했습니다."]
         status = RecognitionStatus.NEEDS_CONFIRMATION
     elif product.confidence < _CONFIDENCE_THRESHOLD:
         warnings = []

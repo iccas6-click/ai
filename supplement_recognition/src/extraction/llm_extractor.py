@@ -1,32 +1,33 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from google import genai
-from google.genai import types
-from PIL import Image
+from openai import OpenAI
+
+_GATEWAY_BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway"
+_MODEL = "gemini-3.5-flash"
 
 _PROMPT = """\
-이 건강기능식품 이미지에서 제품명만 추출해줘.
+아래는 건강기능식품 라벨에서 OCR로 추출한 텍스트입니다.
+이 텍스트에서 제품명만 추출해줘.
 
 규칙:
-- 이미지에 명시된 제품명만 반환할 것.
-- 브랜드명, 부제목, 용량 등은 제외하고 핵심 제품명만.
-- 제품명 텍스트만 응답할 것. 설명 없이.
+- 제품명만 반환할 것. 설명 없이.
+- 브랜드명, 용량, 정수 등은 제외하고 핵심 제품명만.
+- OCR 오류로 깨진 텍스트는 문맥상 가장 가까운 한글로 보정해서 반환.
 
-예시:
-- "종근당 칼슘앤마그네슘 비타민D 아연 1000mg 180정" → 칼슘앤마그네슘 비타민D 아연
-- "CJ 아이시안 루테인지아잔틴 플러스 케어+" → 아이시안 루테인지아잔틴
+OCR 텍스트:
+{ocr_text}
 """
 
 
-def extract_product_name(image_path: Path | str) -> str:
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    image = Image.open(image_path)
-
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=[image, _PROMPT],
+def extract_product_name(ocr_text: str) -> str:
+    client = OpenAI(
+        api_key=os.environ["CBNUAI_API_KEY"],
+        base_url=_GATEWAY_BASE_URL,
     )
-    return response.text.strip()
+    response = client.chat.completions.create(
+        model=_MODEL,
+        messages=[{"role": "user", "content": _PROMPT.format(ocr_text=ocr_text)}],
+    )
+    return response.choices[0].message.content.strip()
