@@ -1,8 +1,7 @@
 """
 파이프라인 테스트 스크립트.
-사용법: python scripts/test_pipeline.py data/samples/이미지파일명.jpg
+사용법: python supplement_recognition/scripts/test_pipeline.py data/samples/이미지파일명.jpg
 """
-import json
 import sys
 import os
 import warnings
@@ -11,14 +10,16 @@ import logging
 warnings.filterwarnings("ignore")
 logging.disable(logging.WARNING)
 
-os.chdir(os.path.join(os.path.dirname(__file__), ".."))
+# ai/ 루트를 기준으로 실행
+os.chdir(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ".")
 
-from src.pipeline import recognize
-from src.extraction.llm_extractor import extract_product_name
-from src.matching.mfds_client import search_product
 from dotenv import load_dotenv
 load_dotenv()
+
+from supplement_recognition.src.pipeline import recognize
+from supplement_recognition.src.extraction.llm_extractor import extract_product_name
+from supplement_recognition.src.matching.mfds_client import search_product
 
 
 def main():

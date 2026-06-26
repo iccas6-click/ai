@@ -20,11 +20,11 @@ class MfdsProduct:
 
 def _get_conn():
     return mysql.connector.connect(
-        host=os.environ.get("MYSQL_HOST", "localhost"),
-        port=int(os.environ.get("MYSQL_PORT", 3306)),
-        database=os.environ.get("MYSQL_DATABASE", "click_db"),
-        user=os.environ.get("MYSQL_USER", "click_user"),
-        password=os.environ.get("MYSQL_PASSWORD", "click0623"),
+        host=os.environ["MYSQL_HOST"],
+        port=int(os.environ["MYSQL_PORT"]),
+        database=os.environ["MYSQL_DATABASE"],
+        user=os.environ["MYSQL_USER"],
+        password=os.environ["MYSQL_PASSWORD"],
         charset="utf8mb4",
     )
 
@@ -56,9 +56,9 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
 
         best = max(
             candidates,
-            key=lambda r: fuzz.token_sort_ratio(product_name, r["prduct"]),
+            key=lambda r: fuzz.partial_ratio(product_name, r["prduct"]),
         )
-        best["_similarity"] = fuzz.token_sort_ratio(product_name, best["prduct"])
+        best["_similarity"] = fuzz.partial_ratio(product_name, best["prduct"])
 
         return MfdsProduct(
             product_code=best["sttemnt_no"],

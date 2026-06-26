@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from src.matching.mfds_client import search_product
-from src.schema.result import SupplementProduct
+from supplement_recognition.src.matching.mfds_client import search_product
+from supplement_recognition.src.schema.result import SupplementProduct
 
-_SIMILARITY_THRESHOLD = 75
+_SIMILARITY_THRESHOLD = 70
 
 
 def match_and_enrich(product_name: str) -> SupplementProduct:

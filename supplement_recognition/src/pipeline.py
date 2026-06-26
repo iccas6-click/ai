@@ -5,9 +5,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.extraction.llm_extractor import extract_product_name
-from src.matching.matcher import match_and_enrich
-from src.schema.result import (
+from supplement_recognition.src.extraction.llm_extractor import extract_product_name
+from supplement_recognition.src.matching.matcher import match_and_enrich
+from supplement_recognition.src.schema.result import (
     ErrorCode,
     RecognitionStatus,
     SupplementRecognitionResult,
