@@ -3,15 +3,17 @@ from __future__ import annotations
 from src.matching.mfds_client import search_product
 from src.schema.result import SupplementProduct
 
+_SIMILARITY_THRESHOLD = 75
 
-def match_and_enrich(ocr_text: str) -> SupplementProduct:
-    """OCR 텍스트로 FULLTEXT + RapidFuzz 매칭 후 SupplementProduct 반환."""
-    mfds = search_product(ocr_text)
 
-    if mfds is None:
+def match_and_enrich(product_name: str) -> SupplementProduct:
+    """제품명으로 FULLTEXT + RapidFuzz 매칭 후 SupplementProduct 반환."""
+    mfds = search_product(product_name)
+
+    if mfds is None or mfds.similarity < _SIMILARITY_THRESHOLD:
         return SupplementProduct(
-            product_name=ocr_text[:100],
-            confidence=0.5,
+            product_name=product_name[:100],
+            confidence=0.0,
         )
 
     return SupplementProduct(
@@ -20,5 +22,5 @@ def match_and_enrich(ocr_text: str) -> SupplementProduct:
         manufacturer=mfds.manufacturer,
         main_function=mfds.main_function,
         base_standard=mfds.base_standard,
-        confidence=0.85,
+        confidence=round(mfds.similarity / 100, 2),
     )

@@ -15,6 +15,7 @@ class MfdsProduct:
     manufacturer: str
     main_function: str
     base_standard: str
+    similarity: float = 0.0
 
 
 def _get_conn():
@@ -55,8 +56,9 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
 
         best = max(
             candidates,
-            key=lambda r: fuzz.partial_ratio(product_name, r["prduct"]),
+            key=lambda r: fuzz.token_sort_ratio(product_name, r["prduct"]),
         )
+        best["_similarity"] = fuzz.token_sort_ratio(product_name, best["prduct"])
 
         return MfdsProduct(
             product_code=best["sttemnt_no"],
@@ -64,6 +66,7 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             manufacturer=best["entrps"],
             main_function=best["main_fnctn"],
             base_standard=best["base_standard"],
+            similarity=best["_similarity"],
         )
     except Exception:
         return None

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import os
+from pathlib import Path
 
 from openai import OpenAI
 
@@ -8,26 +10,42 @@ _GATEWAY_BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway"
 _MODEL = "gemini-3.5-flash"
 
 _PROMPT = """\
-아래는 건강기능식품 라벨에서 OCR로 추출한 텍스트입니다.
-이 텍스트에서 제품명만 추출해줘.
+이 건강기능식품 라벨 이미지에서 제품명을 추출해줘.
 
 규칙:
-- 제품명만 반환할 것. 설명 없이.
-- 브랜드명, 용량, 정수 등은 제외하고 핵심 제품명만.
-- OCR 오류로 깨진 텍스트는 문맥상 가장 가까운 한글로 보정해서 반환.
-
-OCR 텍스트:
-{ocr_text}
+- 브랜드명 + 제품명을 함께 반환할 것. 예) 센트룸 멀티 구미, 종근당 칼슘앤마그네슘
+- 용량, 정수, 광고 문구 등은 제외.
+- 한글로 반환할 것.
+- 설명 없이 제품명만 반환.
 """
 
 
-def extract_product_name(ocr_text: str) -> str:
+def extract_product_name(image_path: Path | str) -> str:
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+
+    ext = Path(image_path).suffix.lower().lstrip(".")
+    if ext == "jpg":
+        ext = "jpeg"
+    mime_type = f"image/{ext}"
+
     client = OpenAI(
         api_key=os.environ["CBNUAI_API_KEY"],
         base_url=_GATEWAY_BASE_URL,
     )
     response = client.chat.completions.create(
         model=_MODEL,
-        messages=[{"role": "user", "content": _PROMPT.format(ocr_text=ocr_text)}],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _PROMPT},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{image_data}"},
+                    },
+                ],
+            }
+        ],
     )
     return response.choices[0].message.content.strip()

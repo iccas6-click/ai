@@ -5,7 +5,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.ocr.reader import extract_text
 from src.extraction.llm_extractor import extract_product_name
 from src.matching.matcher import match_and_enrich
 from src.schema.result import (
@@ -22,9 +21,9 @@ _CONFIDENCE_THRESHOLD = 0.7
 def recognize(image_path: Path | str, request_id: str | None = None) -> SupplementRecognitionResult:
     rid = request_id or f"rec_supplement_{uuid.uuid4().hex[:8]}"
 
-    # 1. EasyOCR로 텍스트 추출
+    # 1. Gemini Vision으로 이미지에서 제품명 직접 추출
     try:
-        ocr_text = extract_text(image_path)
+        product_name = extract_product_name(image_path)
     except Exception as e:
         return SupplementRecognitionResult(
             request_id=rid,
@@ -33,25 +32,14 @@ def recognize(image_path: Path | str, request_id: str | None = None) -> Suppleme
             error_detail=str(e),
         )
 
-    if not ocr_text.strip():
+    if not product_name.strip():
         return SupplementRecognitionResult(
             request_id=rid,
             status=RecognitionStatus.FAILED,
             error_code=ErrorCode.OCR_TEXT_NOT_FOUND,
         )
 
-    # 2. Gemini로 OCR 텍스트에서 제품명 추출
-    try:
-        product_name = extract_product_name(ocr_text)
-    except Exception as e:
-        return SupplementRecognitionResult(
-            request_id=rid,
-            status=RecognitionStatus.FAILED,
-            error_code=ErrorCode.MODEL_INFERENCE_FAILED,
-            error_detail=str(e),
-        )
-
-    # 3. FULLTEXT + RapidFuzz로 DB 매칭
+    # 2. FULLTEXT + RapidFuzz로 DB 매칭
     product = match_and_enrich(product_name)
 
     if product.product_code is None:

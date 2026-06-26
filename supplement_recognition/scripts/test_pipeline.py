@@ -15,11 +15,22 @@ os.chdir(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ".")
 
 from src.pipeline import recognize
+from src.extraction.llm_extractor import extract_product_name
+from src.matching.mfds_client import search_product
+from dotenv import load_dotenv
+load_dotenv()
 
 
 def main():
     image_path = sys.argv[1] if len(sys.argv) > 1 else input("이미지 경로: ")
     print(f"\n이미지: {image_path}")
+    print("-" * 50)
+
+    gemini_result = extract_product_name(image_path)
+    print(f"[Gemini 인식] {gemini_result}")
+
+    db_result = search_product(gemini_result)
+    print(f"[DB 매칭]    {db_result.product_name if db_result else '없음'}")
     print("-" * 50)
 
     result = recognize(image_path)
