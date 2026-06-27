@@ -39,6 +39,7 @@ ai/
 기존 v1 baseline은 `inference/pill_recognition_legacy/`에 보존되어 있습니다.
 
 실행 방법과 환경 구성은 [`inference/pill_recognition/README.md`](./inference/pill_recognition/README.md)를 참고합니다.
+앱 연동용 호출 순서와 status별 사용자 흐름은 [`inference/pill_recognition/SERVICE_FLOW.md`](./inference/pill_recognition/SERVICE_FLOW.md)에 정리합니다.
 
 ```bash
 cd /home/gyuha_lee/pill/code/ai/inference

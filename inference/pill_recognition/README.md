@@ -14,6 +14,8 @@ image
 
 기존 `RTMDet + AIHub ResNet152 + EfficientNet` baseline은 `inference/pill_recognition_legacy/`에 보존합니다.
 
+앱 연동 시 호출 순서와 status별 사용자 흐름은 [`SERVICE_FLOW.md`](./SERVICE_FLOW.md)를 따릅니다.
+
 ## 실행
 
 기본값은 외부 API 없이 실행되는 retrieval recognizer입니다. 실행 전 AI Hub reference index를 한 번 생성해야 합니다.
