@@ -29,6 +29,11 @@ class FakeRetriever:
     model_version = "fake-retriever"
     calls = 0
     allowed_pill_ids = None
+    index_positions_by_pill_id = {
+        "K-000001": [0],
+        "K-000002": [1],
+        "K-000777": [2, 3],
+    }
 
     def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
         self.calls += 1
@@ -158,6 +163,7 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
         "total",
     }
     assert result.timings_ms["total"] >= 0
+    assert result.candidate_scope == {}
 
 
 def test_pipeline_passes_allowed_pill_scope_to_retriever():
@@ -169,12 +175,38 @@ def test_pipeline_passes_allowed_pill_scope_to_retriever():
         product_index={},
     )
 
-    pipeline.recognize(
+    result = pipeline.recognize(
         np.zeros((64, 64, 3), dtype=np.uint8) + 255,
-        allowed_pill_ids={"K-000001", "K-000777"},
+        allowed_pill_ids={"K-000001", "K-000777", "K-MISSING"},
     )
 
-    assert retriever.allowed_pill_ids == {"K-000001", "K-000777"}
+    assert retriever.allowed_pill_ids == {"K-000001", "K-000777", "K-MISSING"}
+    assert result.candidate_scope == {
+        "enabled": True,
+        "allowed_count": 3,
+        "retrieval_id_match_count": 2,
+        "retrieval_index_position_count": 3,
+        "metadata_match_count": 0,
+        "unknown_retrieval_pill_ids": ["K-MISSING"],
+        "unknown_metadata_pill_ids": ["K-000001", "K-000777", "K-MISSING"],
+    }
+
+
+def test_pipeline_warns_when_allowed_scope_has_no_retrieval_match():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=SingleFakeDetector(),
+        retriever=EmptyRetriever(),
+        product_index={},
+    )
+
+    result = pipeline.recognize(
+        np.zeros((64, 64, 3), dtype=np.uint8) + 255,
+        allowed_pill_ids={"K-MISSING"},
+    )
+
+    assert result.candidate_scope["unknown_retrieval_pill_ids"] == ["K-MISSING"]
+    assert any("No allowed pill IDs" in warning for warning in result.warnings)
 
 
 def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result():

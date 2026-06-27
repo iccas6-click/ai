@@ -60,18 +60,19 @@ flowchart TD
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
 2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. 사용자의 복약목록 K-ID가 있으면 `allowed_pill_ids`를 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
 3. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
-4. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
-5. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
-6. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
-7. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
+4. 응답의 `candidate_scope.retrieval_id_match_count`가 0이면 복약목록 K-ID 매핑 오류로 보고 직접 검색 또는 복약목록 수정 UI로 보냅니다.
+5. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
+6. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
+7. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
+8. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
    - 알약 앞/뒷면 각인 입력
    - 선택된 알약의 반대면 crop 추가 촬영
    - 더 가까운 재촬영
-8. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다. 이때도 같은 `allowed_pill_ids`를 함께 보냅니다.
-9. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
-10. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
+9. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다. 이때도 같은 `allowed_pill_ids`를 함께 보냅니다.
+10. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
+11. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
 
-사용자 복약목록이 있으면 9번에서 `allowed_pill_ids`를 함께 보냅니다. 이렇게 하면 전체 AIHub 1000종에서 다시 고르는 대신 사용자가 실제로 복용 중이거나 등록한 약 안에서만 후보를 재정렬합니다. 실서비스에서는 이 흐름을 우선 사용합니다.
+사용자 복약목록이 있으면 10번의 `/products/refine`에도 `allowed_pill_ids`를 함께 보냅니다. 이렇게 하면 전체 AIHub 1000종에서 다시 고르는 대신 사용자가 실제로 복용 중이거나 등록한 약 안에서만 후보를 재정렬합니다. 실서비스에서는 이 흐름을 우선 사용합니다.
 
 ## Candidate Refinement Payload
 

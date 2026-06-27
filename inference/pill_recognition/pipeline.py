@@ -74,6 +74,7 @@ class PillRecognitionPipeline:
         height, width = image_rgb.shape[:2]
         quality_start = perf_counter()
         warnings = assess_image_quality(image_rgb, context="image")
+        candidate_scope = self.candidate_scope_summary(allowed_pill_ids)
         quality_ms = elapsed_ms(quality_start)
         detected_crops = []
         detections = []
@@ -146,6 +147,13 @@ class PillRecognitionPipeline:
 
         if not self.product_index:
             warnings.append("AI Hub product metadata is unavailable.")
+        if candidate_scope.get("enabled") and not candidate_scope.get(
+            "retrieval_id_match_count",
+        ):
+            warnings.append(
+                "No allowed pill IDs are present in the retrieval index. "
+                "Check the user's medication K-ID mapping."
+            )
         if not detections:
             warnings.append("No pill was detected. Retake the photo with separated pills.")
         postprocess_ms = elapsed_ms(postprocess_start)
@@ -164,6 +172,7 @@ class PillRecognitionPipeline:
                 "postprocess": postprocess_ms,
                 "total": elapsed_ms(total_start),
             },
+            candidate_scope=candidate_scope,
         )
 
     def recognize_crop(
@@ -186,6 +195,7 @@ class PillRecognitionPipeline:
         total_start = perf_counter()
         preprocess_start = perf_counter()
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
+        candidate_scope = self.candidate_scope_summary(allowed_pill_ids)
         warnings = []
         for index, crop in enumerate(crops, start=1):
             warnings.extend(assess_image_quality(crop, context=f"crop {index}"))
@@ -234,13 +244,17 @@ class PillRecognitionPipeline:
             pill_count=len(detections),
             model_version=f"crop-batch+{self._recognizer_version()}",
             detections=detections,
-            warnings=warnings if detections else ["No crop was provided."],
+            warnings=scope_warnings(
+                warnings if detections else ["No crop was provided."],
+                candidate_scope,
+            ),
             timings_ms={
                 "preprocess": preprocess_ms,
                 "recognition": recognition_ms,
                 "postprocess": elapsed_ms(postprocess_start),
                 "total": elapsed_ms(total_start),
             },
+            candidate_scope=candidate_scope,
         )
 
     def _recognize_crops(
@@ -286,6 +300,26 @@ class PillRecognitionPipeline:
             dummy_crop = np.full((96, 96, 3), 240, dtype=np.uint8)
             self.retriever.predict_batch([dummy_crop], top_k=1)
 
+    def candidate_scope_summary(self, allowed_pill_ids: set[str] | None) -> dict:
+        allowed = {str(pill_id).strip() for pill_id in allowed_pill_ids or set()}
+        allowed = {pill_id for pill_id in allowed if pill_id}
+        if not allowed:
+            return {}
+
+        positions_by_id = getattr(self.retriever, "index_positions_by_pill_id", {}) or {}
+        retrieval_matches = {pill_id for pill_id in allowed if pill_id in positions_by_id}
+        position_count = sum(len(positions_by_id[pill_id]) for pill_id in retrieval_matches)
+        metadata_matches = {pill_id for pill_id in allowed if pill_id in self.product_index}
+        return {
+            "enabled": True,
+            "allowed_count": len(allowed),
+            "retrieval_id_match_count": len(retrieval_matches),
+            "retrieval_index_position_count": position_count,
+            "metadata_match_count": len(metadata_matches),
+            "unknown_retrieval_pill_ids": sorted(allowed - retrieval_matches),
+            "unknown_metadata_pill_ids": sorted(allowed - metadata_matches),
+        }
+
 
 def recognize_crops_with_retriever(
     retriever,
@@ -309,6 +343,18 @@ def recognize_crops_with_retriever(
     for (index, _), candidates in zip(valid_pairs, predictions):
         results[index] = candidates
     return results
+
+
+def scope_warnings(warnings: list[str], candidate_scope: dict) -> list[str]:
+    output = list(warnings)
+    if candidate_scope.get("enabled") and not candidate_scope.get(
+        "retrieval_id_match_count",
+    ):
+        output.append(
+            "No allowed pill IDs are present in the retrieval index. "
+            "Check the user's medication K-ID mapping."
+        )
+    return output
 
 
 def local_visual_observation(crop: np.ndarray) -> VisionObservation:

@@ -68,6 +68,7 @@ class RecognitionResult:
     detections: list[PillDetection]
     warnings: list[str] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    candidate_scope: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
