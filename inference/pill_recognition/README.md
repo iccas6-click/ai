@@ -385,6 +385,17 @@ python -m pill_recognition.evaluate_real_dataset \
   --output outputs/evaluation/real-smartphone-oracle-scope.json
 ```
 
+평가 결과 비교:
+
+```bash
+python -m pill_recognition.compare_real_evaluations \
+  --baseline outputs/evaluation/real-smartphone-unscoped.json \
+  --candidate outputs/evaluation/real-smartphone-annotation-scope.json \
+  --name-baseline unscoped \
+  --name-candidate annotation-scope \
+  --output outputs/evaluation/real-smartphone-scope-compare.json
+```
+
 이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`, `mean_total_ms`, `p95_total_ms`입니다.
 
 결과 JSON에는 `analysis` 섹션도 포함됩니다. 이 섹션은 다음 케이스를 따로 모아 실제 개선 우선순위를 정하는 데 씁니다.
