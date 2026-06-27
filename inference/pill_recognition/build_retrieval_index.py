@@ -17,6 +17,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--limit-classes", type=int, default=None)
+    parser.add_argument(
+        "--index-mode",
+        choices=["prototype", "reference"],
+        default="reference",
+        help="prototype averages embeddings per class; reference stores every sampled reference image.",
+    )
     return parser.parse_args()
 
 
@@ -40,7 +46,7 @@ def main() -> None:
         pill_dirs = pill_dirs[: args.limit_classes]
 
     pill_ids = []
-    prototype_embeddings = []
+    index_embeddings = []
     manifest = []
     for class_index, pill_dir in enumerate(pill_dirs, start=1):
         image_paths = sorted(pill_dir.glob("*.png"))[: args.samples_per_class]
@@ -63,29 +69,36 @@ def main() -> None:
             with torch.inference_mode():
                 features = encoder(tensor).flatten(1)
                 features = torch.nn.functional.normalize(features, dim=1)
-            embeddings.append(features.cpu())
+            cpu_features = features.cpu()
+            embeddings.append(cpu_features)
             manifest.extend(str(path) for path in valid_paths)
+            if args.index_mode == "reference":
+                index_embeddings.extend(feature for feature in cpu_features)
+                pill_ids.extend(pill_dir.name for _ in valid_paths)
         if not embeddings:
             continue
-        prototype = torch.cat(embeddings, dim=0).mean(dim=0, keepdim=True)
-        prototype = torch.nn.functional.normalize(prototype, dim=1)
-        pill_ids.append(pill_dir.name)
-        prototype_embeddings.append(prototype.squeeze(0))
+        if args.index_mode == "prototype":
+            prototype = torch.cat(embeddings, dim=0).mean(dim=0, keepdim=True)
+            prototype = torch.nn.functional.normalize(prototype, dim=1)
+            pill_ids.append(pill_dir.name)
+            index_embeddings.append(prototype.squeeze(0))
         if class_index % 50 == 0:
             print(f"indexed {class_index}/{len(pill_dirs)} classes")
 
     payload = {
         "version": 1,
         "encoder": "aihub-resnet152-fc-identity",
+        "index_mode": args.index_mode,
         "samples_per_class": args.samples_per_class,
         "pill_ids": pill_ids,
-        "embeddings": torch.stack(prototype_embeddings).half(),
+        "embeddings": torch.stack(index_embeddings).half(),
         "reference_count": len(manifest),
-        "class_count": len(pill_ids),
+        "class_count": len(set(pill_ids)),
     }
     torch.save(payload, output_path)
     print(
-        f"saved {output_path} with {payload['class_count']} classes "
+        f"saved {output_path} with {payload['class_count']} classes, "
+        f"{len(pill_ids)} index embeddings "
         f"from {payload['reference_count']} reference images"
     )
 

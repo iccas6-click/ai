@@ -58,11 +58,14 @@ class AIHubResNetRetriever:
         if not isinstance(pill_ids, list) or not torch.is_tensor(embeddings):
             raise ValueError("Retrieval index has invalid format")
         self.pill_ids = [str(pill_id) for pill_id in pill_ids]
+        self.index_mode = str(payload.get("index_mode", "prototype"))
         self.embeddings = torch.nn.functional.normalize(
             embeddings.float(),
             dim=1,
         ).to(self.device)
-        self.model_version = f"aihub-resnet152-retrieval:{index_path.name}"
+        self.model_version = (
+            f"aihub-resnet152-retrieval:{self.index_mode}:{index_path.name}"
+        )
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AIHubResNetRetriever":
@@ -84,12 +87,24 @@ class AIHubResNetRetriever:
             return []
         query_embeddings = self.embed_crops(crops_rgb)
         scores = query_embeddings @ self.embeddings.T
-        values, indices = torch.topk(scores, min(top_k, scores.shape[1]), dim=1)
+        search_k = min(max(top_k * 24, 64), scores.shape[1])
+        values, indices = torch.topk(scores, search_k, dim=1)
         results = []
         for row_values, row_indices in zip(values.tolist(), indices.tolist()):
-            row_candidates = []
-            for rank, (score, index) in enumerate(zip(row_values, row_indices), start=1):
+            best_by_pill_id: dict[str, float] = {}
+            for score, index in zip(row_values, row_indices):
                 pill_id = self.pill_ids[index]
+                if pill_id not in best_by_pill_id or score > best_by_pill_id[pill_id]:
+                    best_by_pill_id[pill_id] = float(score)
+                if len(best_by_pill_id) >= top_k and self.index_mode == "prototype":
+                    break
+            ranked = sorted(
+                best_by_pill_id.items(),
+                key=lambda item: item[1],
+                reverse=True,
+            )[:top_k]
+            row_candidates = []
+            for rank, (pill_id, score) in enumerate(ranked, start=1):
                 product = self.product_master.get(pill_id)
                 row_candidates.append(
                     product_candidate_from_aihub_product(
@@ -169,4 +184,3 @@ def retrieval_transform() -> transforms.Compose:
             ),
         ]
     )
-
