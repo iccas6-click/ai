@@ -6,6 +6,10 @@
     "lighting": "indoor",
     "notes": "5 pills separated on a desk"
   },
+  "allowed_pill_ids": [
+    "K-000000",
+    "K-000001"
+  ],
   "pills": [
     {
       "pill_id": 1,

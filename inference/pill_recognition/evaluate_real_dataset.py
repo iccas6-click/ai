@@ -24,6 +24,7 @@ class RealEvaluationExample:
     image_path: Path
     annotation_path: Path
     ground_truth: list[GroundTruthPill]
+    allowed_pill_ids: set[str]
 
 
 def parse_args() -> argparse.Namespace:
@@ -42,6 +43,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument(
+        "--scope-mode",
+        choices=["none", "annotation", "ground-truth"],
+        default="none",
+        help=(
+            "Limit retrieval to no scope, annotation allowed_pill_ids, or the "
+            "ground-truth K-IDs as an oracle user medication list."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -62,7 +72,8 @@ def main() -> None:
     rows = []
     for index, example in enumerate(examples, start=1):
         image_rgb = np.asarray(Image.open(example.image_path).convert("RGB"))
-        result = pipeline.recognize(image_rgb)
+        allowed_pill_ids = evaluation_scope_for_example(example, args.scope_mode)
+        result = pipeline.recognize(image_rgb, allowed_pill_ids=allowed_pill_ids)
         row = evaluate_result(
             example.image_path.name,
             example.ground_truth,
@@ -70,6 +81,9 @@ def main() -> None:
             args.iou_threshold,
         )
         row["annotation"] = str(example.annotation_path)
+        row["scope_mode"] = args.scope_mode
+        row["allowed_pill_ids"] = sorted(allowed_pill_ids)
+        row["candidate_scope"] = result.candidate_scope
         rows.append(row)
         print(json.dumps(compact_row(row), ensure_ascii=False), flush=True)
         if index % 20 == 0:
@@ -112,14 +126,40 @@ def load_real_examples(
         payload = json.loads(annotation_path.read_text(encoding="utf-8"))
         image_path = resolve_image_path(images_root, annotation_path, payload)
         ground_truth = load_real_ground_truth(annotation_path, payload)
+        allowed_pill_ids = load_allowed_pill_ids(payload)
         examples.append(
             RealEvaluationExample(
                 image_path=image_path,
                 annotation_path=annotation_path,
                 ground_truth=ground_truth,
+                allowed_pill_ids=allowed_pill_ids,
             )
         )
     return examples
+
+
+def evaluation_scope_for_example(
+    example: RealEvaluationExample,
+    scope_mode: str,
+) -> set[str]:
+    if scope_mode == "none":
+        return set()
+    if scope_mode == "annotation":
+        return set(example.allowed_pill_ids)
+    if scope_mode == "ground-truth":
+        return {
+            pill.class_name
+            for pill in example.ground_truth
+            if str(pill.class_name or "").strip()
+        }
+    raise ValueError(f"Unsupported scope mode: {scope_mode}")
+
+
+def load_allowed_pill_ids(payload: dict) -> set[str]:
+    values = payload.get("allowed_pill_ids") or []
+    if not isinstance(values, list):
+        raise ValueError("allowed_pill_ids must be a list when provided.")
+    return {str(value).strip() for value in values if str(value).strip()}
 
 
 def resolve_image_path(images_root: Path, annotation_path: Path, payload: dict) -> Path:

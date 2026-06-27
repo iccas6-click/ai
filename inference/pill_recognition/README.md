@@ -311,10 +311,12 @@ datasets/evaluation/real-smartphone/
 ```
 
 annotation 포맷은 `real_eval_schema.example.json`을 따릅니다. `class_name`은 AIHub K-ID이고, `bbox_xyxy`는 원본 이미지 픽셀 좌표 `[x1, y1, x2, y2]`입니다. bbox가 있어야 detector와 제품 인식을 end-to-end로 분리 평가할 수 있습니다.
+사용자의 실제 복약목록을 알고 있는 평가 사진이면 root의 `allowed_pill_ids`에 해당 K-ID 목록을 넣습니다.
 
 ```json
 {
   "image": "IMG_0001.jpg",
+  "allowed_pill_ids": ["K-000000", "K-000001", "K-000002"],
   "pills": [
     {
       "pill_id": 1,
@@ -356,6 +358,31 @@ python -m pill_recognition.evaluate_real_dataset \
   --dataset-root ../datasets/evaluation/real-smartphone \
   --top-k 5 \
   --output outputs/evaluation/real-smartphone.json
+```
+
+복약목록 scope 효과를 같이 보려면 같은 평가셋을 mode별로 돌립니다.
+
+```bash
+# 전체 AIHub 1000종 검색 기준
+python -m pill_recognition.evaluate_real_dataset \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --scope-mode none \
+  --top-k 5 \
+  --output outputs/evaluation/real-smartphone-unscoped.json
+
+# annotation의 allowed_pill_ids 기준
+python -m pill_recognition.evaluate_real_dataset \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --scope-mode annotation \
+  --top-k 5 \
+  --output outputs/evaluation/real-smartphone-annotation-scope.json
+
+# 정답 K-ID를 복약목록으로 넣는 oracle 실험. 실서비스 수치가 아니라 scope의 최대 개선폭 확인용입니다.
+python -m pill_recognition.evaluate_real_dataset \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --scope-mode ground-truth \
+  --top-k 5 \
+  --output outputs/evaluation/real-smartphone-oracle-scope.json
 ```
 
 이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`, `mean_total_ms`, `p95_total_ms`입니다.
