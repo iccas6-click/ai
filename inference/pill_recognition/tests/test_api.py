@@ -16,6 +16,11 @@ from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 
 
 class FakePipeline:
+    warmup_calls = 0
+
+    def warmup(self, load_detector=True):
+        self.warmup_calls += 1
+
     def recognize(self, image_rgb):
         assert image_rgb.shape == (12, 16, 3)
         return fake_result("fake", "needs_confirmation")
@@ -36,6 +41,11 @@ class FakePipeline:
                 fake_detection(2, "K-000002"),
             ],
         )
+
+
+class FailingWarmupPipeline(FakePipeline):
+    def warmup(self, load_detector=True):
+        raise RuntimeError("warmup boom")
 
 
 def fake_result(model_version: str, status: str) -> RecognitionResult:
@@ -101,6 +111,34 @@ def test_health_returns_runtime_policy(monkeypatch):
     assert response.json()["max_upload_bytes"] == 10 * 1024 * 1024
     assert response.json()["max_image_pixels"] == 12_000_000
     assert response.json()["retrieval_query_preprocess"] == "none"
+    assert response.json()["warmup"]["enabled"] is True
+
+
+def test_startup_warmup_marks_health_ok():
+    pipeline = FakePipeline()
+    app = create_app(lambda: pipeline)
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    warmup = response.json()["warmup"]
+    assert warmup["status"] == "ok"
+    assert warmup["duration_ms"] >= 0
+    assert warmup["error"] is None
+    assert pipeline.warmup_calls == 1
+
+
+def test_startup_warmup_failure_is_reported_without_crashing():
+    app = create_app(lambda: FailingWarmupPipeline())
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    warmup = response.json()["warmup"]
+    assert warmup["status"] == "failed"
+    assert "RuntimeError" in warmup["error"]
 
 
 def test_recognize_accepts_uploaded_image():

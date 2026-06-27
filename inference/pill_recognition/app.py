@@ -201,5 +201,11 @@ def build_app() -> gr.Blocks:
     return app
 
 
+def warmup() -> None:
+    if get_settings().warmup_on_startup:
+        get_pipeline().warmup(load_detector=True)
+
+
 if __name__ == "__main__":
+    warmup()
     build_app().launch(server_name="127.0.0.1", server_port=7860)

@@ -251,6 +251,13 @@ class PillRecognitionPipeline:
             self.detector = self._load_detector()
         return self.detector
 
+    def warmup(self, load_detector: bool = True) -> None:
+        if load_detector:
+            self._get_detector()
+        if self.settings.recognizer == "retrieval" and self.retriever is not None:
+            dummy_crop = np.full((96, 96, 3), 240, dtype=np.uint8)
+            self.retriever.predict_batch([dummy_crop], top_k=1)
+
 
 def recognize_crops_with_retriever(
     retriever,

@@ -3,6 +3,7 @@ from pill_recognition.app import (
     format_candidates,
     format_cautions,
     format_ingredient,
+    warmup,
 )
 from pill_recognition.schemas import ProductCandidate
 
@@ -36,3 +37,16 @@ def test_format_candidates_focuses_on_product_and_ingredient():
 
 def test_format_cautions_uses_dash_for_empty_values():
     assert format_cautions([]) == "-"
+
+
+def test_warmup_respects_disabled_setting(monkeypatch):
+    class Settings:
+        warmup_on_startup = False
+
+    def fail_get_pipeline():
+        raise AssertionError("pipeline should not be loaded")
+
+    monkeypatch.setattr("pill_recognition.app.get_settings", lambda: Settings())
+    monkeypatch.setattr("pill_recognition.app.get_pipeline", fail_get_pipeline)
+
+    warmup()

@@ -26,6 +26,7 @@ class Settings:
     retrieval_index: Path = PROJECT_ROOT / "artifacts" / "retrieval" / "aihub_resnet_index.pt"
     retrieval_metadata_rerank: bool = False
     retrieval_query_preprocess: str = "none"
+    warmup_on_startup: bool = True
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -108,6 +109,10 @@ class Settings:
                 "PILL_RETRIEVAL_QUERY_PREPROCESS",
                 "none",
             ).strip().lower(),
+            warmup_on_startup=parse_bool(
+                os.getenv("PILL_WARMUP_ON_STARTUP"),
+                default=True,
+            ),
         )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import io
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
 from time import perf_counter
@@ -41,11 +42,18 @@ def create_app(
     pipeline_factory: Callable[[], PillRecognitionPipeline] = get_pipeline,
     product_index_factory: Callable[[], dict] = get_product_index,
 ) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        warmup_pipeline(app, pipeline_factory)
+        yield
+
     app = FastAPI(
         title="CLICK Pill Recognition API",
         version="0.1.0",
         description="RTMDet + AIHub retrieval pill recognition API.",
+        lifespan=lifespan,
     )
+    app.state.warmup = initial_warmup_state()
 
     @app.get("/health")
     def health():
@@ -58,6 +66,7 @@ def create_app(
             "max_upload_bytes": settings.max_upload_bytes,
             "max_image_pixels": settings.max_image_pixels,
             "retrieval_query_preprocess": settings.retrieval_query_preprocess,
+            "warmup": app.state.warmup,
         }
 
     @app.post("/recognize")
@@ -234,6 +243,48 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def initial_warmup_state() -> dict:
+    enabled = get_settings().warmup_on_startup
+    return {
+        "enabled": enabled,
+        "status": "pending" if enabled else "disabled",
+        "duration_ms": None,
+        "error": None,
+    }
+
+
+def warmup_pipeline(
+    app: FastAPI,
+    pipeline_factory: Callable[[], PillRecognitionPipeline],
+) -> None:
+    if not get_settings().warmup_on_startup:
+        app.state.warmup = {
+            "enabled": False,
+            "status": "disabled",
+            "duration_ms": None,
+            "error": None,
+        }
+        return
+    start = perf_counter()
+    try:
+        pipeline = pipeline_factory()
+        if hasattr(pipeline, "warmup"):
+            pipeline.warmup(load_detector=True)
+        app.state.warmup = {
+            "enabled": True,
+            "status": "ok",
+            "duration_ms": elapsed_ms(start),
+            "error": None,
+        }
+    except Exception as error:
+        app.state.warmup = {
+            "enabled": True,
+            "status": "failed",
+            "duration_ms": elapsed_ms(start),
+            "error": f"{type(error).__name__}: {error}",
+        }
 
 
 def attach_api_timings(

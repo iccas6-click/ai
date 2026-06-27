@@ -42,12 +42,18 @@ source ../.venv/bin/activate
 python -m pill_recognition.api --host 0.0.0.0 --port 8001
 ```
 
+API 서버는 기본적으로 startup 시 pipeline warmup을 수행합니다. retrieval 모델/index와 detector를 미리 로드해 첫 사용자 요청 지연을 줄입니다. 필요하면 끌 수 있습니다.
+
+```bash
+export PILL_WARMUP_ON_STARTUP=0
+```
+
 ```bash
 curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg"
 ```
 
-응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 파이프라인 내부 `quality`, `detector`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total` latency가 포함됩니다.
+응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 파이프라인 내부 `quality`, `detector`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total` latency가 포함됩니다. Warmup이 정상 완료되면 일반 요청의 `pipeline_get`은 매우 작아야 합니다.
 
 선택한 알약 crop 단독 인식 API:
 
