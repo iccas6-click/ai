@@ -396,6 +396,18 @@ python -m pill_recognition.compare_real_evaluations \
   --output outputs/evaluation/real-smartphone-scope-compare.json
 ```
 
+세 평가와 비교 리포트를 한 번에 만들려면 suite runner를 사용합니다.
+
+```bash
+python -m pill_recognition.run_real_evaluation_suite \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --top-k 5 \
+  --output-dir outputs/evaluation \
+  --prefix real-smartphone
+```
+
+이 명령은 `unscoped`, `annotation-scope`, `oracle-scope` 평가와 `annotation-vs-unscoped`, `oracle-vs-unscoped`, `oracle-vs-annotation` 비교 JSON을 생성합니다. 먼저 실행 계획만 보려면 `--dry-run`, 이미 생성된 결과를 건너뛰려면 `--skip-existing`을 추가합니다.
+
 이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`, `mean_total_ms`, `p95_total_ms`입니다.
 
 결과 JSON에는 `analysis` 섹션도 포함됩니다. 이 섹션은 다음 케이스를 따로 모아 실제 개선 우선순위를 정하는 데 씁니다.
