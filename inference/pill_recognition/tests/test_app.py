@@ -1,9 +1,12 @@
 from pill_recognition.app import (
+    aihub_candidate_rows,
     format_bbox,
+    format_aihub_candidates,
     format_candidates,
     format_cautions,
     format_ingredient,
     recognize,
+    safe_rate,
     warmup,
 )
 from pill_recognition.schemas import (
@@ -12,6 +15,7 @@ from pill_recognition.schemas import (
     RecognitionResult,
     VisionObservation,
 )
+from pill_recognition_legacy.schemas import Candidate
 
 
 class FakePipeline:
@@ -76,6 +80,48 @@ def test_format_candidates_focuses_on_product_and_ingredient():
 
 def test_format_cautions_uses_dash_for_empty_values():
     assert format_cautions([]) == "-"
+
+
+def test_aihub_candidate_rows_show_official_classifier_metadata():
+    candidates = [
+        Candidate(
+            rank=1,
+            class_id=378,
+            class_name="K-004378",
+            confidence=0.9876,
+            product_name="타이레놀정500mg",
+            ingredient="아세트아미노펜",
+            print_front="TYLENOL",
+            print_back="500",
+            drug_shape="장방형",
+            color_class1="하양",
+            company="한국얀센",
+            item_seq="199303108",
+            etc_otc_code="일반의약품",
+        )
+    ]
+
+    assert aihub_candidate_rows(candidates)[0] == [
+        1,
+        "K-004378",
+        378,
+        98.76,
+        "타이레놀정500mg",
+        "아세트아미노펜",
+        "TYLENOL",
+        "500",
+        "장방형",
+        "하양",
+        "한국얀센",
+        "199303108",
+        "일반의약품",
+    ]
+    assert "타이레놀정500mg" in format_aihub_candidates(candidates)
+
+
+def test_safe_rate_handles_empty_totals():
+    assert safe_rate(0, 0) == 0.0
+    assert safe_rate(1, 4) == 0.25
 
 
 def test_recognize_passes_allowed_pill_scope_to_pipeline(monkeypatch):
