@@ -109,6 +109,7 @@ flowchart TD
 | Metadata rerank | 실제 사진 A/B 실험용 색상·형상 후보 재정렬. 기본값 off |
 | DINOv2 retrieval | 비교 실험용 foundation embedding. 1000종 평가에서 AI Hub ResNet보다 낮아 기본값 제외 |
 | End-to-end evaluator | 합성 multi-pill scene에서 detector F1과 제품 Top-K를 함께 평가 |
+| Real smartphone evaluator | 실제 촬영 이미지와 bbox/K-ID annotation으로 서비스형 end-to-end 지표 산출 |
 | AI Hub ResNet152 class01 | legacy baseline의 1,000종 K-ID Top-3 분류 |
 | EfficientNet-B0 | legacy baseline의 118종 후보 비교 |
 | OCR | 의약품 포장과 용기의 제품명·함량 추출 |

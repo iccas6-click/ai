@@ -109,6 +109,47 @@ python -m pill_recognition.build_augmented_retrieval_index \
   --output artifacts/retrieval/aihub_resnet_augmented_reference16.pt
 ```
 
+## Real smartphone 평가셋
+
+실서비스 판단은 실제 스마트폰 사진으로 해야 합니다. 권장 최소셋은 30~50장, 총 150~300알입니다.
+
+```text
+datasets/evaluation/real-smartphone/
+├── images/
+│   ├── IMG_0001.jpg
+│   └── IMG_0002.jpg
+└── annotations/
+    ├── IMG_0001.json
+    └── IMG_0002.json
+```
+
+annotation 포맷은 `real_eval_schema.example.json`을 따릅니다. `class_name`은 AIHub K-ID이고, `bbox_xyxy`는 원본 이미지 픽셀 좌표 `[x1, y1, x2, y2]`입니다. bbox가 있어야 detector와 제품 인식을 end-to-end로 분리 평가할 수 있습니다.
+
+```json
+{
+  "image": "IMG_0001.jpg",
+  "pills": [
+    {
+      "pill_id": 1,
+      "class_name": "K-000000",
+      "product_name": "제품명",
+      "bbox_xyxy": [100, 120, 220, 260]
+    }
+  ]
+}
+```
+
+평가:
+
+```bash
+python -m pill_recognition.evaluate_real_dataset \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --top-k 5 \
+  --output outputs/evaluation/real-smartphone.json
+```
+
+이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`입니다.
+
 Gemini는 비교 실험용으로만 유지합니다.
 
 ```bash
