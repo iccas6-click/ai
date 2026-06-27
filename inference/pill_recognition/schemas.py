@@ -5,12 +5,20 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class VisionProductCandidate:
+    product_name: str
+    ingredient: str | None = None
+    confidence: float | None = None
+
+
+@dataclass(frozen=True)
 class VisionObservation:
     imprint_front: str | None = None
     imprint_back: str | None = None
     shape: str | None = None
     color: str | None = None
     text: str | None = None
+    product_candidates: list[VisionProductCandidate] = field(default_factory=list)
     possible_product_names: list[str] = field(default_factory=list)
     confidence: float | None = None
     notes: str | None = None

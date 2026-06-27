@@ -39,7 +39,6 @@ def recognize(image: np.ndarray | None):
                 detection.pill_id,
                 format_bbox(detection.bbox),
                 f"{detection.detector_confidence:.3f}",
-                format_vision(detection.vision),
                 format_candidates(detection.candidates),
                 detection.status,
             ]
@@ -86,32 +85,13 @@ def format_bbox(bbox: tuple[int, int, int, int]) -> str:
     return f"{x1},{y1},{x2},{y2}"
 
 
-def format_vision(vision) -> str:
-    parts = []
-    for label, value in (
-        ("각인 앞", vision.imprint_front),
-        ("각인 뒤", vision.imprint_back),
-        ("모양", vision.shape),
-        ("색", vision.color),
-        ("텍스트", vision.text),
-    ):
-        if value:
-            parts.append(f"{label}: {value}")
-    if vision.possible_product_names:
-        parts.append("후보명: " + ", ".join(vision.possible_product_names[:3]))
-    if vision.confidence is not None:
-        parts.append(f"시각 confidence: {vision.confidence:.2f}")
-    return "\n".join(parts) if parts else "-"
-
-
 def format_candidates(candidates) -> str:
     if not candidates:
         return "-"
     return "\n".join(
-        f"{candidate.rank}. {candidate.pill_id} | {candidate.product_name or '-'} | "
-        f"{candidate.source} | "
+        f"{candidate.rank}. 제품명: {candidate.product_name or '-'} | "
         f"성분: {format_ingredient(candidate.ingredient or '') or '-'} | "
-        f"점수 {candidate.score} | {candidate.matched or '-'}"
+        f"{candidate.source} | 점수 {candidate.score}"
         for candidate in candidates
     )
 
@@ -132,7 +112,7 @@ def build_app() -> gr.Blocks:
         with gr.Tab("인식 데모"):
             gr.Markdown(
                 "# CLICK 알약 인식 v2\n"
-                f"RTMDet로 알약 위치를 찾고, `{settings.vision_provider}` provider가 각인/색/모양 단서를 뽑은 뒤 AI Hub 1000종 DB로 후보를 검증합니다."
+                f"RTMDet로 알약 위치를 찾고, `{settings.vision_provider}` provider가 제품명과 성분 후보를 반환합니다."
             )
             with gr.Row():
                 source = gr.Image(type="numpy", label="여러 알약 사진")
@@ -143,8 +123,7 @@ def build_app() -> gr.Blocks:
                     "번호",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "Vision 단서",
-                    "AI Hub DB 후보",
+                    "제품명/성분 후보",
                     "상태",
                 ],
                 interactive=False,

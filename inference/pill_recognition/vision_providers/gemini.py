@@ -7,7 +7,7 @@ import re
 import numpy as np
 from PIL import Image
 
-from ..schemas import VisionObservation
+from ..schemas import VisionObservation, VisionProductCandidate
 
 
 PROMPT = """
@@ -15,26 +15,28 @@ You inspect one cropped pill image for a Korean pill recognition app.
 Return only strict JSON.
 
 Primary goal:
-- Identify the most likely medication/product names from the image.
-- Use imprint, shape, color, visible text, and your visual knowledge.
-- Put the best guesses first in possible_product_names.
+- Identify the most likely medication/product names and active ingredients.
+- The app only needs product_name and ingredient.
+- Put the best guesses first in candidates.
 
 Rules:
 - Do not refuse just because this is a medication image.
 - Do not give medical advice, dosage advice, or safety advice.
 - If the pill is unclear, still return your best visual candidates with lower confidence.
-- If no pill is visible, return empty possible_product_names and confidence 0.
-- Extract imprints exactly as seen. If there is a split line, write compact text such as "W2" when visually appropriate.
-- Use null only for fields that are not visible.
+- If no pill is visible, return empty candidates and confidence 0.
+- ingredient should be the active ingredient name in Korean when you can infer it.
+- If you are unsure of ingredient, use null rather than inventing a precise ingredient.
+- Do not return shape, color, imprint, dosage instructions, warnings, or explanations outside notes.
 
 Schema:
 {
-  "imprint_front": string|null,
-  "imprint_back": string|null,
-  "shape": "원형"|"타원형"|"장방형"|"반원형"|"삼각형"|"사각형"|"기타"|null,
-  "color": "하양"|"노랑"|"주황"|"분홍"|"빨강"|"갈색"|"초록"|"파랑"|"보라"|"회색"|"검정"|"투명"|null,
-  "text": string|null,
-  "possible_product_names": string[],
+  "candidates": [
+    {
+      "product_name": string,
+      "ingredient": string|null,
+      "confidence": number
+    }
+  ],
   "confidence": number,
   "notes": string|null
 }
@@ -72,17 +74,10 @@ class GeminiVisionProvider:
             ],
         )
         payload = parse_json_response(getattr(response, "text", "") or "")
+        product_candidates = parse_product_candidates(payload)
         return VisionObservation(
-            imprint_front=clean(payload.get("imprint_front")),
-            imprint_back=clean(payload.get("imprint_back")),
-            shape=clean(payload.get("shape")),
-            color=clean(payload.get("color")),
-            text=clean(payload.get("text")),
-            possible_product_names=[
-                str(value).strip()
-                for value in payload.get("possible_product_names", [])
-                if str(value).strip()
-            ],
+            product_candidates=product_candidates,
+            possible_product_names=[candidate.product_name for candidate in product_candidates],
             confidence=to_float(payload.get("confidence")),
             notes=clean(payload.get("notes")),
             raw={"provider": self.name, "model": self.model, "response": payload},
@@ -108,6 +103,47 @@ def clean(value) -> str | None:
     if not text or text.lower() == "null":
         return None
     return text
+
+
+def parse_product_candidates(payload: dict) -> list[VisionProductCandidate]:
+    rows = payload.get("candidates", [])
+    if not isinstance(rows, list):
+        rows = []
+    candidates = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        product_name = clean(row.get("product_name"))
+        if not product_name:
+            continue
+        normalized = "".join(product_name.split()).upper()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append(
+            VisionProductCandidate(
+                product_name=product_name,
+                ingredient=clean(row.get("ingredient")),
+                confidence=to_float(row.get("confidence")),
+            )
+        )
+    if candidates:
+        return candidates
+
+    legacy_names = payload.get("possible_product_names", [])
+    if not isinstance(legacy_names, list):
+        return []
+    for name in legacy_names:
+        product_name = clean(name)
+        if not product_name:
+            continue
+        normalized = "".join(product_name.split()).upper()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append(VisionProductCandidate(product_name=product_name))
+    return candidates
 
 
 def to_float(value) -> float | None:

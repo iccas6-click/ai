@@ -1,7 +1,7 @@
 import numpy as np
 
 from pill_recognition.pipeline import PillRecognitionPipeline
-from pill_recognition.schemas import VisionObservation
+from pill_recognition.schemas import VisionObservation, VisionProductCandidate
 from pill_recognition.settings import Settings
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 from pill_recognition_legacy.schemas import Candidate
@@ -22,10 +22,13 @@ class FakeVisionProvider:
 
     def inspect_crop(self, crop_rgb):
         return VisionObservation(
-            imprint_front="W2",
-            shape="원형",
-            color="하양",
-            possible_product_names=["Gemini 와르파린 후보"],
+            product_candidates=[
+                VisionProductCandidate(
+                    product_name="Gemini 와르파린 후보",
+                    ingredient="와르파린나트륨",
+                    confidence=0.8,
+                )
+            ],
             confidence=0.8,
         )
 
@@ -58,7 +61,7 @@ def test_pipeline_uses_vision_clues_to_search_product_db():
     assert result.model_version == "rtmdet-single-class+fake-vision+aihub-db"
     assert result.detections[0].candidates[0].pill_id == "GEMINI"
     assert result.detections[0].candidates[0].source == "gemini"
-    assert result.detections[0].candidates[1].pill_id == "K-000001"
+    assert result.detections[0].candidates[0].ingredient == "와르파린나트륨"
     assert result.detections[0].status == "needs_confirmation"
 
 

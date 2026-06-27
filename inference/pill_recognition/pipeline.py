@@ -4,7 +4,13 @@ import cv2
 import numpy as np
 
 from .product_db import ProductSearchQuery, load_product_index, search_products
-from .schemas import PillDetection, ProductCandidate, RecognitionResult, VisionObservation
+from .schemas import (
+    PillDetection,
+    ProductCandidate,
+    RecognitionResult,
+    VisionObservation,
+    VisionProductCandidate,
+)
 from .settings import Settings
 from .vision_providers import create_vision_provider
 
@@ -105,19 +111,17 @@ def product_query_from_observation(
     observation: VisionObservation,
     limit: int,
 ) -> ProductSearchQuery:
-    imprints = [
-        value
-        for value in (observation.imprint_front, observation.imprint_back)
-        if value
-    ]
     text_parts = []
-    if observation.text:
-        text_parts.append(observation.text)
-    text_parts.extend(observation.possible_product_names)
+    for candidate in observation.product_candidates:
+        text_parts.append(candidate.product_name)
+        if candidate.ingredient:
+            text_parts.append(candidate.ingredient)
+    if not text_parts:
+        text_parts.extend(observation.possible_product_names)
     return ProductSearchQuery(
-        imprint=" ".join(imprints),
-        shape=observation.shape or "",
-        color=observation.color or "",
+        imprint="",
+        shape="",
+        color="",
         text=" ".join(text_parts),
         limit=limit,
     )
@@ -195,8 +199,14 @@ def merge_llm_and_db_candidates(
 
 
 def llm_product_candidates(observation: VisionObservation) -> list[ProductCandidate]:
+    if observation.product_candidates:
+        return [
+            llm_candidate_from_vision_candidate(index, candidate, observation.confidence)
+            for index, candidate in enumerate(observation.product_candidates, start=1)
+        ]
+
     confidence = observation.confidence if observation.confidence is not None else 0.5
-    base_score = max(1, min(100, round(confidence * 100)))
+    base_score = confidence_to_score(confidence)
     candidates = []
     seen = set()
     for index, product_name in enumerate(observation.possible_product_names, start=1):
@@ -211,10 +221,38 @@ def llm_product_candidates(observation: VisionObservation) -> list[ProductCandid
                 score=max(1, base_score - ((index - 1) * 5)),
                 source="gemini",
                 product_name=product_name,
+                ingredient=None,
                 matched="Gemini visual recognition",
             )
         )
     return candidates
+
+
+def llm_candidate_from_vision_candidate(
+    index: int,
+    candidate: VisionProductCandidate,
+    fallback_confidence: float | None,
+) -> ProductCandidate:
+    confidence = (
+        candidate.confidence
+        if candidate.confidence is not None
+        else fallback_confidence
+        if fallback_confidence is not None
+        else 0.5
+    )
+    return ProductCandidate(
+        rank=index,
+        pill_id="GEMINI",
+        score=max(1, confidence_to_score(confidence) - ((index - 1) * 5)),
+        source="gemini",
+        product_name=candidate.product_name,
+        ingredient=candidate.ingredient,
+        matched="Gemini product/ingredient recognition",
+    )
+
+
+def confidence_to_score(confidence: float) -> int:
+    return max(1, min(100, round(confidence * 100)))
 
 
 def normalize_name(value: str | None) -> str:
