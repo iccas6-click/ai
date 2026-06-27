@@ -77,6 +77,19 @@ datasets/processed/rtmdet-aihub-synthetic-realistic-max10/
 이 합성셋은 RTMDet 단일 클래스 detector 학습과 5~10개 알약 위치 탐지 stress test용입니다. 제품명 retrieval 정확도 판단은 실제 스마트폰 평가셋을 기준으로 합니다.
 `manifest.json`에는 `requested_count_distribution`과 `placed_count_distribution`을 모두 기록합니다. 두 분포 차이가 크면 crop 크기, mask 품질 threshold, image size를 먼저 확인해야 합니다.
 
+생성 직후에는 합성 품질 리포트와 bbox preview를 확인합니다.
+
+```bash
+python -m training.rtmdet_single_class.scripts.audit_aihub_synthetic \
+  --dataset-root datasets/processed/rtmdet-aihub-synthetic-realistic-max10 \
+  --split train \
+  --limit 200 \
+  --report-output outputs/evaluation/synthetic-train-audit.json \
+  --preview-output outputs/evaluation/synthetic-train-preview.jpg
+```
+
+리포트에서 `count_match_rate`가 1.0에 가깝고, `requested_count_distribution`과 `placed_count_distribution`이 거의 같아야 합니다. `low_quality_masks`나 `high_attempt_images`가 많으면 학습 전에 합성 파라미터를 조정합니다.
+
 ## 학습
 
 118 클래스 RTMDet v4 체크포인트에서 backbone, neck, box regression 가중치를 재사용하고 118 클래스 분류 출력층은 제거합니다. 새 출력층은 `pill` 한 클래스만 예측합니다.
