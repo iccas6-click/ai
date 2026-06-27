@@ -15,6 +15,7 @@ image
 기존 `RTMDet + AIHub ResNet152 + EfficientNet` baseline은 `inference/pill_recognition_legacy/`에 보존합니다.
 
 앱 연동 시 호출 순서와 status별 사용자 흐름은 [`SERVICE_FLOW.md`](./SERVICE_FLOW.md)를 따릅니다.
+모델 선택 근거와 외부 자료 검토 요약은 [`RESEARCH_NOTES.md`](./RESEARCH_NOTES.md)에 정리합니다.
 
 ## 실행
 
@@ -265,7 +266,20 @@ python -m pill_recognition.draft_real_annotations \
   --top-k 5
 ```
 
-초안의 `class_name`, `product_name`, `bbox_xyxy`는 반드시 사람이 확인해야 합니다. `candidate_hints`에는 현재 pipeline의 후보가 들어가며, 맞는 후보가 없으면 AIHub 제품 DB 검색 탭이나 원본 AIHub K-ID 목록으로 확인합니다.
+초안의 `class_name`, `product_name`, `bbox_xyxy`는 반드시 사람이 확인해야 합니다. `candidate_hints`에는 현재 pipeline의 후보가 들어가며, 맞는 후보가 없으면 AIHub 제품 DB 검색 탭이나 원본 AIHub K-ID 목록으로 확인합니다. JSON만 보지 말고 HTML 리뷰 리포트를 만들어 bbox, crop, Top-3 후보를 한 화면에서 검수합니다.
+
+```bash
+python -m pill_recognition.render_real_annotation_review \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --output-dir outputs/real-review
+```
+
+생성된 `outputs/real-review/index.html`을 브라우저에서 열고 다음을 확인합니다.
+
+- bbox가 실제 알약 하나만 감싸는지
+- `class_name`이 검증된 AIHub K-ID인지
+- 후보 Top-3에 정답이 있는지
+- 흐림, 과노출, 겹침처럼 평가셋에서 제외하거나 별도 태깅할 촬영 문제가 있는지
 
 평가:
 
