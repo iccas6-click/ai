@@ -17,32 +17,40 @@ from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 class FakePipeline:
     def recognize(self, image_rgb):
         assert image_rgb.shape == (12, 16, 3)
-        return RecognitionResult(
-            image_width=16,
-            image_height=12,
-            pill_count=1,
-            model_version="fake",
-            detections=[
-                PillDetection(
-                    pill_id=1,
-                    bbox=(1, 2, 10, 11),
-                    crop_bbox=(0, 1, 11, 12),
-                    detector_confidence=0.92,
-                    vision=VisionObservation(),
-                    candidates=[
-                        ProductCandidate(
-                            rank=1,
-                            pill_id="K-000001",
-                            score=88.0,
-                            product_name="테스트정",
-                            ingredient="성분A",
-                        )
-                    ],
-                    status="needs_confirmation",
-                    status_reason="review required",
-                )
-            ],
-        )
+        return fake_result("fake", "needs_confirmation")
+
+    def recognize_crop(self, image_rgb):
+        assert image_rgb.shape == (12, 16, 3)
+        return fake_result("fake-crop", "needs_confirmation")
+
+
+def fake_result(model_version: str, status: str) -> RecognitionResult:
+    return RecognitionResult(
+        image_width=16,
+        image_height=12,
+        pill_count=1,
+        model_version=model_version,
+        detections=[
+            PillDetection(
+                pill_id=1,
+                bbox=(1, 2, 10, 11),
+                crop_bbox=(0, 1, 11, 12),
+                detector_confidence=0.92,
+                vision=VisionObservation(),
+                candidates=[
+                    ProductCandidate(
+                        rank=1,
+                        pill_id="K-000001",
+                        score=88.0,
+                        product_name="테스트정",
+                        ingredient="성분A",
+                    )
+                ],
+                status=status,
+                status_reason="review required",
+            )
+        ],
+    )
 
 
 def test_health_returns_runtime_policy(monkeypatch):
@@ -71,6 +79,23 @@ def test_recognize_accepts_uploaded_image():
     assert payload["detections"][0]["status"] == "needs_confirmation"
     assert payload["detections"][0]["status_reason"] == "review required"
     assert payload["detections"][0]["candidates"][0]["pill_id"] == "K-000001"
+
+
+def test_recognize_crop_accepts_uploaded_single_pill_crop():
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.post(
+        "/crops/recognize",
+        files={"file": ("pill-crop.jpg", image_bytes(16, 12), "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_version"] == "fake-crop"
+    assert payload["pill_count"] == 1
+    assert payload["detections"][0]["bbox"] == [1, 2, 10, 11]
+    assert payload["detections"][0]["candidates"][0]["product_name"] == "테스트정"
 
 
 def test_recognize_rejects_non_image_file():

@@ -27,7 +27,7 @@ class PillRecognitionPipeline:
         product_index: dict | None = None,
     ) -> None:
         self.settings = settings or Settings.from_env()
-        self.detector = detector or self._load_detector()
+        self.detector = detector
         self.retriever = retriever or self._load_retriever()
         self.vision_provider = vision_provider
         if self.settings.recognizer == "gemini" and self.vision_provider is None:
@@ -61,9 +61,10 @@ class PillRecognitionPipeline:
         height, width = image_rgb.shape[:2]
         detected_crops = []
         detections = []
+        detector = self._get_detector()
 
         for pill_id, (bbox, detector_candidates) in enumerate(
-            self.detector.predict(image_rgb),
+            detector.predict(image_rgb),
             start=1,
         ):
             bbox = clamp_bbox(bbox, width, height)
@@ -134,6 +135,37 @@ class PillRecognitionPipeline:
             warnings=warnings,
         )
 
+    def recognize_crop(self, crop_rgb: np.ndarray) -> RecognitionResult:
+        crop_rgb = ensure_rgb_uint8(crop_rgb)
+        height, width = crop_rgb.shape[:2]
+        recognition_batches, vision_observations = self._recognize_crops([crop_rgb])
+        candidates = recognition_batches[0] if recognition_batches else []
+        vision = vision_observations[0] if vision_observations else VisionObservation()
+        status, status_reason = determine_status(
+            candidates,
+            min_score=self.settings.candidate_min_score,
+            ambiguity_margin=self.settings.candidate_ambiguity_margin,
+        )
+
+        return RecognitionResult(
+            image_width=width,
+            image_height=height,
+            pill_count=1,
+            model_version=f"single-crop+{self._recognizer_version()}",
+            detections=[
+                PillDetection(
+                    pill_id=1,
+                    bbox=(0, 0, width, height),
+                    crop_bbox=(0, 0, width, height),
+                    detector_confidence=1.0,
+                    vision=vision,
+                    candidates=candidates,
+                    status=status,
+                    status_reason=status_reason,
+                )
+            ],
+        )
+
     def _recognize_crops(
         self,
         crops: list[np.ndarray],
@@ -162,6 +194,11 @@ class PillRecognitionPipeline:
         if self.vision_provider is not None:
             return f"{self.vision_provider.name}+gemini"
         return self.settings.recognizer
+
+    def _get_detector(self):
+        if self.detector is None:
+            self.detector = self._load_detector()
+        return self.detector
 
 
 def recognize_crops_with_retriever(

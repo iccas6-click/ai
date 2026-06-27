@@ -47,6 +47,15 @@ curl -X POST http://127.0.0.1:8001/recognize \
 
 응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다.
 
+선택한 알약 crop 단독 인식 API:
+
+```bash
+curl -X POST http://127.0.0.1:8001/crops/recognize \
+  -F "file=@pill_crop.jpg"
+```
+
+이 endpoint는 RTMDet 탐지를 다시 돌리지 않고 업로드된 crop을 바로 AIHub retrieval에 넣습니다. 앱에서는 사용자가 특정 알약을 선택한 뒤 반대면을 추가 촬영하거나, 프론트에서 이미 잘라낸 crop을 재확인할 때 사용합니다.
+
 각인/색/모양/텍스트 보정 검색 API:
 
 ```bash

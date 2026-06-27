@@ -46,6 +46,11 @@ class FakeRetriever:
         ]
 
 
+class ExplodingDetector:
+    def predict(self, image_rgb):
+        raise AssertionError("crop recognition must not call detector")
+
+
 class AmbiguousRetriever:
     model_version = "ambiguous-retriever"
 
@@ -143,6 +148,28 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
     assert result.detections[0].vision.shape == "원형"
     assert result.detections[0].status == "needs_confirmation"
     assert result.detections[0].status_reason
+
+
+def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result():
+    retriever = FakeRetriever()
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=ExplodingDetector(),
+        retriever=retriever,
+        product_index={},
+    )
+
+    result = pipeline.recognize_crop(np.zeros((32, 48, 3), dtype=np.uint8) + 255)
+
+    assert result.model_version == "single-crop+fake-retriever"
+    assert result.image_width == 48
+    assert result.image_height == 32
+    assert result.pill_count == 1
+    assert result.detections[0].bbox == (0, 0, 48, 32)
+    assert result.detections[0].detector_confidence == 1.0
+    assert result.detections[0].candidates[0].pill_id == "K-000001"
+    assert result.detections[0].vision.color == "하양"
+    assert retriever.calls == 1
 
 
 def test_pipeline_preserves_vision_observation_for_provider_recognizer():

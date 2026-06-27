@@ -61,6 +61,12 @@ def create_app(
         result = pipeline_factory().recognize(image_rgb)
         return result.to_dict()
 
+    @app.post("/crops/recognize")
+    async def recognize_crop(file: UploadFile = File(...)):
+        crop_rgb = await read_upload_image(file)
+        result = pipeline_factory().recognize_crop(crop_rgb)
+        return result.to_dict()
+
     @app.get("/products/search")
     def search_product_db(
         imprint: str = "",
