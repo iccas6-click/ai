@@ -8,6 +8,15 @@ aihub_official_code/
 datasets/*
 !datasets/.gitignore
 !datasets/README.md
+!datasets/evaluation/
+!datasets/evaluation/real-smartphone/
+!datasets/evaluation/real-smartphone/README.md
+!datasets/evaluation/real-smartphone/annotations/
+datasets/evaluation/real-smartphone/annotations/*
+!datasets/evaluation/real-smartphone/annotations/.gitkeep
+!datasets/evaluation/real-smartphone/images/
+datasets/evaluation/real-smartphone/images/*
+!datasets/evaluation/real-smartphone/images/.gitkeep
 
 __pycache__/
 *.py[cod]
