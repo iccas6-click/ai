@@ -113,7 +113,7 @@ python -m training.rtmdet_single_class.scripts.train \
 
 기본 설정은 RTX 4060 Laptop 8GB 기준 `1024x1024`, batch 8, AMP입니다. WSL에서 `CachedMosaic` worker 교착을 피하기 위해 `num_workers=0`을 사용합니다.
 
-## Baseline 결과
+## 결과
 
 2026-06-24 실행에서는 3 epoch 이후 validation 성능이 정체되어 12 epoch 설정을 조기 종료했습니다.
 
@@ -124,6 +124,47 @@ python -m training.rtmdet_single_class.scripts.train \
 | 3 | 0.935 | 0.990 | 0.990 |
 
 최고 체크포인트는 `training/runs/rtmdet-single-class/best_coco_bbox_mAP_epoch_2.pth`이며, 추론용 복사본은 `inference/artifacts/rtmdet-single-class/model.pth`입니다.
+
+2026-06-28 실행에서는 개선된 AI Hub synthetic v2 dataset으로 전체 12 epoch 학습을 완료했습니다.
+
+| 항목 | 값 |
+|---|---:|
+| train images | 8,000 |
+| train boxes | 43,633 |
+| val images | 1,000 |
+| val boxes | 5,640 |
+| train/val count match rate | 1.0 / 1.0 |
+| audit low-quality masks | 0 |
+| best epoch | 7 |
+| best COCO bbox mAP | 0.990 |
+| best mAP@50 | 0.990 |
+| best mAP@75 | 0.990 |
+
+API detector wrapper 경로로도 같은 validation split을 평가했습니다.
+
+| Metric | Value |
+|---|---:|
+| images | 1,000 |
+| ground truth boxes | 5,640 |
+| predicted boxes | 5,644 |
+| count exact accuracy | 0.994 |
+| precision | 0.9991 |
+| recall | 0.9998 |
+| F1 | 0.9994 |
+| mean matched IoU | 0.9958 |
+
+서버 후보 가중치는 다음 위치에 staging했습니다.
+
+```text
+inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
+```
+
+기본 `model.pth`는 아직 교체하지 않습니다. 합성 validation 성능은 detector 학습 sanity check로는 충분하지만, 실제 스마트폰 사진 검증셋에서 count recall/false positive를 확인한 뒤 default로 승격합니다. 후보 모델을 테스트할 때는 환경변수로 명시합니다.
+
+```bash
+export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
+export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml
+```
 
 로컬 다중 알약 샘플 5장에서는 각 4개, 총 20개를 모두 검출했습니다. 이 샘플은 학습 데이터와 유사한 합성 도메인이므로 실제 촬영 성능을 뜻하지 않습니다.
 
