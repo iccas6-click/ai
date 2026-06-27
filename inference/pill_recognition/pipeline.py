@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .product_db import ProductSearchQuery, load_product_index, search_products
+from .retrieval import AIHubResNetRetriever
 from .schemas import (
     PillDetection,
     ProductCandidate,
@@ -21,11 +22,15 @@ class PillRecognitionPipeline:
         settings: Settings | None = None,
         detector=None,
         vision_provider=None,
+        retriever=None,
         product_index: dict | None = None,
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.detector = detector or self._load_detector()
-        self.vision_provider = vision_provider or create_vision_provider(self.settings)
+        self.retriever = retriever or self._load_retriever()
+        self.vision_provider = vision_provider
+        if self.settings.recognizer == "gemini" and self.vision_provider is None:
+            self.vision_provider = create_vision_provider(self.settings)
         self.product_index = (
             product_index
             if product_index is not None
@@ -44,6 +49,11 @@ class PillRecognitionPipeline:
             assets.class_names,
             legacy_settings,
         )
+
+    def _load_retriever(self):
+        if self.settings.recognizer != "retrieval":
+            return None
+        return AIHubResNetRetriever.from_settings(self.settings)
 
     def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
         image_rgb = ensure_rgb_uint8(image_rgb)
@@ -76,25 +86,22 @@ class PillRecognitionPipeline:
                 )
             )
 
-        observations = inspect_crops_safely(
-            self.vision_provider,
-            [crop for _, _, _, crop, _ in detected_crops],
-        )
+        crops = [crop for _, _, _, crop, _ in detected_crops]
+        recognition_batches = self._recognize_crops(crops)
 
-        for (pill_id, bbox, crop_bbox, _, detector_confidence), observation in zip(
+        for (pill_id, bbox, crop_bbox, _, detector_confidence), candidates in zip(
             detected_crops,
-            observations,
+            recognition_batches,
         ):
-            candidates = llm_product_candidates(observation)[: self.settings.top_k]
             detections.append(
                 PillDetection(
                     pill_id=pill_id,
                     bbox=bbox,
                     crop_bbox=crop_bbox,
                     detector_confidence=round(detector_confidence, 4),
-                    vision=observation,
+                    vision=VisionObservation(),
                     candidates=candidates,
-                    status=determine_status(observation, candidates),
+                    status=determine_status(candidates),
                 )
             )
 
@@ -108,10 +115,49 @@ class PillRecognitionPipeline:
             image_width=width,
             image_height=height,
             pill_count=len(detections),
-            model_version=f"rtmdet-single-class+{self.vision_provider.name}+aihub-db",
+            model_version=f"rtmdet-single-class+{self._recognizer_version()}",
             detections=detections,
             warnings=warnings,
         )
+
+    def _recognize_crops(self, crops: list[np.ndarray]) -> list[list[ProductCandidate]]:
+        if self.settings.recognizer == "retrieval":
+            return recognize_crops_with_retriever(
+                self.retriever,
+                crops,
+                self.settings.top_k,
+            )
+        observations = inspect_crops_safely(self.vision_provider, crops)
+        return [
+            llm_product_candidates(observation)[: self.settings.top_k]
+            for observation in observations
+        ]
+
+    def _recognizer_version(self) -> str:
+        if self.settings.recognizer == "retrieval" and self.retriever is not None:
+            return self.retriever.model_version
+        if self.vision_provider is not None:
+            return f"{self.vision_provider.name}+gemini"
+        return self.settings.recognizer
+
+
+def recognize_crops_with_retriever(
+    retriever,
+    crops: list[np.ndarray],
+    top_k: int,
+) -> list[list[ProductCandidate]]:
+    if not crops:
+        return []
+    if retriever is None:
+        return [[] for _ in crops]
+    valid_pairs = [(index, crop) for index, crop in enumerate(crops) if crop.size]
+    results = [[] for _ in crops]
+    if not valid_pairs:
+        return results
+    predictions = retriever.predict_batch([crop for _, crop in valid_pairs], top_k)
+    for (index, _), candidates in zip(valid_pairs, predictions):
+        results[index] = candidates
+    return results
 
 
 def product_query_from_observation(
@@ -297,14 +343,9 @@ def normalize_name(value: str | None) -> str:
     return "".join(str(value or "").split()).upper()
 
 
-def determine_status(
-    observation: VisionObservation,
-    candidates: list[ProductCandidate],
-) -> str:
+def determine_status(candidates: list[ProductCandidate]) -> str:
     if not candidates:
-        return "no_gemini_candidate"
-    if candidates[0].score >= 100 and (observation.confidence or 0) >= 0.6:
-        return "needs_confirmation"
+        return "no_candidate"
     return "needs_confirmation"
 
 

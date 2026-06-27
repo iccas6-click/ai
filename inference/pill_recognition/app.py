@@ -117,7 +117,7 @@ def build_app() -> gr.Blocks:
         with gr.Tab("인식 데모"):
             gr.Markdown(
                 "# CLICK 알약 인식 v2\n"
-                f"RTMDet로 알약 위치를 찾고, `{settings.vision_provider}` provider가 제품명, 성분, 주의점을 정리합니다."
+                f"RTMDet로 알약 위치를 찾고, `{settings.recognizer}` recognizer가 제품 후보 Top-N을 반환합니다."
             )
             with gr.Row():
                 source = gr.Image(type="numpy", label="여러 알약 사진")
@@ -128,7 +128,7 @@ def build_app() -> gr.Blocks:
                     "번호",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "제품명/성분/주의점",
+                    "제품명/성분 후보",
                     "상태",
                 ],
                 interactive=False,

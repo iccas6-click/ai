@@ -1,7 +1,7 @@
 import numpy as np
 
 from pill_recognition.pipeline import PillRecognitionPipeline
-from pill_recognition.schemas import VisionObservation, VisionProductCandidate
+from pill_recognition.schemas import ProductCandidate, VisionObservation
 from pill_recognition.settings import Settings
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 from pill_recognition_legacy.schemas import Candidate
@@ -21,27 +21,23 @@ class FakeDetector:
         ]
 
 
-class FakeVisionProvider:
-    name = "fake-vision"
+class FakeRetriever:
+    model_version = "fake-retriever"
     calls = 0
 
-    def inspect_crop(self, crop_rgb):
-        raise AssertionError("pipeline should call inspect_crops for batch inference")
-
-    def inspect_crops(self, crops_rgb):
+    def predict_batch(self, crops_rgb, top_k):
         self.calls += 1
         return [
-            VisionObservation(
-                product_candidates=[
-                    VisionProductCandidate(
-                        product_name=f"Gemini 와르파린 후보 {index}",
-                        ingredient="와르파린나트륨",
-                        caution_points=["출혈 위험 확인"],
-                        confidence=0.8,
-                    )
-                ],
-                confidence=0.8,
-            )
+            [
+                ProductCandidate(
+                    rank=1,
+                    pill_id=f"K-{index:06d}",
+                    score=87.5,
+                    source="fake_retrieval",
+                    product_name=f"검색 후보 {index}",
+                    ingredient="와르파린나트륨",
+                )
+            ]
             for index, _ in enumerate(crops_rgb, start=1)
         ]
 
@@ -56,21 +52,11 @@ class SingleFakeDetector:
         ]
 
 
-class SingleFakeVisionProvider:
-    name = "single-fake-vision"
+class EmptyRetriever:
+    model_version = "empty-retriever"
 
-    def inspect_crop(self, crop_rgb):
-        return VisionObservation(
-            product_candidates=[
-                VisionProductCandidate(
-                    product_name="Gemini 와르파린 후보",
-                    ingredient="와르파린나트륨",
-                    caution_points=["출혈 위험 확인"],
-                    confidence=0.8,
-                )
-            ],
-            confidence=0.8,
-        )
+    def predict_batch(self, crops_rgb, top_k):
+        return [[] for _ in crops_rgb]
 
 
 class FailingVisionProvider:
@@ -80,12 +66,12 @@ class FailingVisionProvider:
         raise RuntimeError("boom")
 
 
-def test_pipeline_uses_vision_clues_to_search_product_db():
-    vision_provider = FakeVisionProvider()
+def test_pipeline_uses_retriever_batch_for_detected_crops():
+    retriever = FakeRetriever()
     pipeline = PillRecognitionPipeline(
         settings=Settings(top_k=3),
         detector=FakeDetector(),
-        vision_provider=vision_provider,
+        retriever=retriever,
         product_index={
             "K-000001": AIHubProductInfo(
                 pill_id="K-000001",
@@ -99,25 +85,23 @@ def test_pipeline_uses_vision_clues_to_search_product_db():
 
     result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
 
-    assert result.model_version == "rtmdet-single-class+fake-vision+aihub-db"
-    assert result.detections[0].candidates[0].pill_id == "GEMINI"
-    assert result.detections[0].candidates[0].source == "gemini"
+    assert result.model_version == "rtmdet-single-class+fake-retriever"
+    assert result.detections[0].candidates[0].pill_id == "K-000001"
+    assert result.detections[0].candidates[0].source == "fake_retrieval"
     assert result.detections[0].candidates[0].ingredient == "와르파린나트륨"
-    assert result.detections[0].candidates[0].caution_points == ["출혈 위험 확인"]
     assert result.pill_count == 2
-    assert vision_provider.calls == 1
+    assert retriever.calls == 1
     assert result.detections[0].status == "needs_confirmation"
 
 
-def test_pipeline_keeps_running_when_vision_provider_fails():
+def test_pipeline_marks_no_candidate_when_retriever_returns_empty():
     pipeline = PillRecognitionPipeline(
         settings=Settings(top_k=3),
         detector=SingleFakeDetector(),
-        vision_provider=FailingVisionProvider(),
+        retriever=EmptyRetriever(),
         product_index={},
     )
 
     result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
 
-    assert result.detections[0].status == "no_gemini_candidate"
-    assert "provider failed" in result.detections[0].vision.notes
+    assert result.detections[0].status == "no_candidate"

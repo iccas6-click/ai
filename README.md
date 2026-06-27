@@ -16,7 +16,7 @@ ai/
 │   ├── artifacts/            # 추론 모델 가중치, Git 제외
 │   ├── aihub_official_code/  # AI Hub 공식 배포 파일, Git 제외
 │   ├── outputs/              # 추론 결과, Git 제외
-│   ├── pill_recognition/     # v2: RTMDet + vision provider + AI Hub DB 검색
+│   ├── pill_recognition/     # v2: RTMDet + AI Hub ResNet retrieval
 │   ├── pill_recognition_legacy/ # v1: RTMDet + ResNet/EfficientNet baseline 보존
 │   └── supplement_recognition/
 └── README.md
@@ -26,14 +26,14 @@ ai/
 
 ## 현재 구현 상태
 
-`pill-baseline` 브랜치의 기본 의약품 인식 런타임은 v2 구조입니다.
+`pill-baseline` 브랜치의 기본 의약품 인식 런타임은 v2 retrieval 구조입니다.
 
 - 한 이미지에서 여러 알약을 `pill` 단일 클래스로 탐지
 - RTMDet Bounding Box 기준으로 알약별 crop 생성
-- vision provider가 crop에서 각인, 색, 모양, 후보 텍스트를 추출
-- AI Hub 1,000종 제품 메타데이터에서 후보 검색
+- AI Hub 공식 ResNet152의 fc 직전 feature로 crop embedding 생성
+- AI Hub 1,000종 reference prototype embedding과 cosine similarity 검색
 - 결과는 제품명, 성분, 업체, 품목기준코드, 일반/전문 여부와 함께 반환
-- Gemini는 선택 provider이며, 기본값은 외부 API 없는 local provider
+- Gemini는 기본 경로에서 제외하고, 비교/실험용 provider로만 유지
 
 기존 v1 baseline은 `inference/pill_recognition_legacy/`에 보존되어 있습니다.
 
@@ -52,7 +52,7 @@ flowchart LR
     A["이미지 입력"] --> B["입력 검증"]
     B --> C["이미지 전처리"]
     C --> D{"인식 대상"}
-    D -->|"의약품"| E["알약 탐지 및 시각 단서 추출"]
+    D -->|"의약품"| E["알약 탐지 및 이미지 유사도 검색"]
     D -->|"건강기능식품"| F["OCR 및 라벨 정보 구조화"]
     E --> G["공공 제품 데이터 대조"]
     F --> G
@@ -87,10 +87,10 @@ flowchart TD
     C --> D{"입력 형태"}
     D -->|"알약 낱알"| E["RTMDet-tiny 알약 탐지"]
     E --> F["Bounding Box 기준 Crop"]
-    F --> G["Vision provider 각인·색상·모양 추출"]
+    F --> G["AI Hub ResNet feature embedding"]
     F --> H["선택: legacy ResNet/EfficientNet 비교"]
     D -->|"포장·용기"| O["OCR 텍스트 추출"]
-    G --> I["각인·색상·모양 메타데이터 결합"]
+    G --> I["AI Hub reference prototype 검색"]
     H --> I
     O --> J["제품명·함량 후보 추출"]
     I --> K["의약품 제품 DB 검색"]
@@ -104,16 +104,16 @@ flowchart TD
 | 구분 | 용도 |
 |---|---|
 | RTMDet-tiny 단일 클래스 | 제품 종류와 무관하게 이미지 내 알약 위치 탐지 및 Bounding Box 생성 |
-| Vision provider | 잘린 알약 이미지에서 각인, 색상, 모양, 후보 텍스트 추출 |
-| AI Hub 제품 DB | K-ID, 제품명, 성분, 업체, 외형 정보 검색 및 후보 검증 |
+| AI Hub ResNet152 retrieval | 잘린 알약 이미지와 AI Hub reference prototype 간 이미지 유사도 검색 |
+| AI Hub 제품 DB | K-ID, 제품명, 성분, 업체, 외형 정보 매핑 |
 | AI Hub ResNet152 class01 | legacy baseline의 1,000종 K-ID Top-3 분류 |
 | EfficientNet-B0 | legacy baseline의 118종 후보 비교 |
 | OCR | 의약품 포장과 용기의 제품명·함량 추출 |
 | AI-Hub 알약 이미지 데이터 | 탐지 및 분류 모델 학습·평가 |
 | 식약처 의약품 데이터 | 제품 코드, 제품명, 주성분, 함량 및 외형 정보 대조 |
-| 멀티모달 모델 | 색상·모양·각인이 모호한 경우의 보조 추론 |
+| 멀티모달 모델 | 실험용 fallback 또는 설명 보조 |
 
-멀티모달 모델은 최종 정답 생성기가 아닙니다. 각인, 색상, 모양 등 관찰 단서를 추출하고, 최종 후보는 AI Hub 제품 DB와 대조해 반환합니다.
+기본 인식 결과는 외부 LLM 호출 없이 로컬 GPU에서 생성합니다. 멀티모달 모델은 속도와 일관성 문제로 기본 경로에서 제외합니다.
 
 ### 출력 예시
 
