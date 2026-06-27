@@ -50,6 +50,12 @@ def search_products(
     return scored[: max(1, query.limit)]
 
 
+def product_to_response_row(product: AIHubProductInfo) -> dict:
+    row = asdict(product)
+    row["reference_image_url"] = product_reference_image_url(product.pill_id)
+    return row
+
+
 def score_product(
     product: AIHubProductInfo,
     query: ProductSearchQuery,

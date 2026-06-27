@@ -19,6 +19,7 @@ from .product_db import (
     ProductSearchQuery,
     load_product_index,
     product_reference_image_url,
+    product_to_response_row,
     score_product,
     search_products,
 )
@@ -171,6 +172,22 @@ def create_app(
             "count": len(results),
             "results": results,
         }
+
+    @app.get("/products/{pill_id}")
+    def get_product_detail(pill_id: str):
+        product_index = product_index_factory()
+        if not product_index:
+            raise HTTPException(
+                status_code=503,
+                detail="AI Hub product metadata is unavailable.",
+            )
+        product = product_index.get(pill_id.strip())
+        if product is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Product not found for {pill_id}.",
+            )
+        return product_to_response_row(product)
 
     @app.get("/products/{pill_id}/reference-image")
     def get_product_reference_image(pill_id: str):

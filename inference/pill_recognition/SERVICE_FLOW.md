@@ -27,6 +27,7 @@ flowchart TD
 | `POST /crops/recognize` | 선택된 알약 crop 1개를 제품 후보 Top-3로 재확인 | 아니오 | 단일 반대면 crop 확인 |
 | `POST /crops/recognize-batch` | 여러 crop을 한 번의 batch로 재확인 | 아니오 | 앞/뒷면 또는 여러 선택 알약 재확인 |
 | `GET /products/search` | 각인, 색, 모양, 제품명, 성분으로 AIHub DB 검색 | 아니오 | 직접 검색 UI, OCR/수기 입력 |
+| `GET /products/{pill_id}` | AIHub 제품 상세 metadata 반환 | 아니오 | 후보 상세 확인 |
 | `GET /products/{pill_id}/reference-image` | AIHub reference crop 이미지 반환 | 아니오 | Top-3 후보 시각 확인 |
 | `POST /products/refine` | 이미지 후보와 각인/색/모양/텍스트 근거를 합쳐 재정렬 | 아니오 | 후보 확정 전 최종 보정 |
 | `GET /health` | 서버 정책과 상태 확인 | 아니오 | 앱 초기화, 운영 모니터링 |

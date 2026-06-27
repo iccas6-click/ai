@@ -89,6 +89,8 @@ curl "http://127.0.0.1:8001/products/search?imprint=W2&shape=원형&color=하양
 제품 후보의 `reference_image_url`은 AIHub reference crop 이미지입니다. 후보 확인 UI에서 제품명/성분과 함께 표시할 수 있습니다.
 
 ```bash
+curl http://127.0.0.1:8001/products/K-000001
+
 curl http://127.0.0.1:8001/products/K-000001/reference-image \
   --output reference.png
 ```

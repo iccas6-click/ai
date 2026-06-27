@@ -325,6 +325,56 @@ def test_product_reference_image_endpoint_returns_aihub_crop(monkeypatch, tmp_pa
     assert response.content
 
 
+def test_product_detail_returns_aihub_metadata():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-000001": AIHubProductInfo(
+                pill_id="K-000001",
+                product_name="대화와르파린나트륨정",
+                ingredient="와르파린나트륨",
+                print_front="W분할선2",
+                drug_shape="원형",
+                color_class1="하양",
+                company="대화제약",
+            )
+        },
+    )
+    client = TestClient(app)
+
+    response = client.get("/products/K-000001")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["pill_id"] == "K-000001"
+    assert payload["product_name"] == "대화와르파린나트륨정"
+    assert payload["ingredient"] == "와르파린나트륨"
+    assert payload["reference_image_url"] == "/products/K-000001/reference-image"
+
+
+def test_product_detail_reports_unknown_product():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-000001": AIHubProductInfo(pill_id="K-000001", product_name="후보")
+        },
+    )
+    client = TestClient(app)
+
+    response = client.get("/products/K-404")
+
+    assert response.status_code == 404
+
+
+def test_product_detail_reports_missing_metadata():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.get("/products/K-000001")
+
+    assert response.status_code == 503
+
+
 def test_product_reference_image_endpoint_rejects_unknown_id(monkeypatch, tmp_path):
     mapping_path = tmp_path / "pill_label_path_sharp_score.json"
     mapping_path.write_text("{}", encoding="utf-8")
