@@ -351,6 +351,16 @@ python -m pill_recognition.render_real_annotation_review \
 - 후보 Top-3에 정답이 있는지
 - 흐림, 과노출, 겹침처럼 평가셋에서 제외하거나 별도 태깅할 촬영 문제가 있는지
 
+평가를 돌리기 전에 annotation이 검수 완료 상태인지 확인합니다. 기본 검증은 `needs_review=true`, 이미지 범위를 벗어난 bbox, AIHub metadata/retrieval index에 없는 K-ID, `allowed_pill_ids`에 정답 K-ID가 빠진 케이스를 error로 보고합니다.
+
+```bash
+python -m pill_recognition.validate_real_dataset \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --output outputs/evaluation/real-smartphone-validation.json
+```
+
+초안 검수 중이라 `needs_review=true`를 허용하고 구조만 확인하려면 `--allow-needs-review`를 추가합니다.
+
 평가:
 
 ```bash
@@ -406,7 +416,7 @@ python -m pill_recognition.run_real_evaluation_suite \
   --prefix real-smartphone
 ```
 
-이 명령은 `unscoped`, `annotation-scope`, `oracle-scope` 평가와 `annotation-vs-unscoped`, `oracle-vs-unscoped`, `oracle-vs-annotation` 비교 JSON을 생성합니다. 먼저 실행 계획만 보려면 `--dry-run`, 이미 생성된 결과를 건너뛰려면 `--skip-existing`을 추가합니다.
+이 명령은 validation, `unscoped`, `annotation-scope`, `oracle-scope` 평가와 `annotation-vs-unscoped`, `oracle-vs-unscoped`, `oracle-vs-annotation` 비교 JSON을 생성합니다. 먼저 실행 계획만 보려면 `--dry-run`, 이미 생성된 결과를 건너뛰려면 `--skip-existing`, validation을 생략하려면 `--skip-validation`을 추가합니다.
 
 이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`, `mean_total_ms`, `p95_total_ms`입니다.
 

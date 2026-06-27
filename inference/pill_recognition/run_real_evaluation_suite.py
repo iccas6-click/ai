@@ -44,6 +44,11 @@ def parse_args() -> argparse.Namespace:
         help="Do not rerun a step when its output JSON already exists.",
     )
     parser.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Skip the real dataset annotation validator step.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the suite plan without executing commands.",
@@ -86,14 +91,25 @@ def build_suite_commands(args: argparse.Namespace) -> list[SuiteCommand]:
         "ground-truth": output_dir / f"{args.prefix}-oracle-scope.json",
     }
 
-    commands = [
+    commands = []
+    if not getattr(args, "skip_validation", False):
+        validation_output = output_dir / f"{args.prefix}-validation.json"
+        commands.append(
+            SuiteCommand(
+                name="validate",
+                output=validation_output,
+                args=validation_command(args, validation_output),
+            )
+        )
+
+    commands.extend([
         SuiteCommand(
             name=f"evaluate:{scope_mode}",
             output=eval_outputs[scope_mode],
             args=evaluate_command(args, scope_mode, eval_outputs[scope_mode]),
         )
         for scope_mode in SCOPE_MODES
-    ]
+    ])
     commands.extend(
         [
             SuiteCommand(
@@ -132,6 +148,25 @@ def build_suite_commands(args: argparse.Namespace) -> list[SuiteCommand]:
         ]
     )
     return commands
+
+
+def validation_command(args: argparse.Namespace, output: Path) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "pill_recognition.validate_real_dataset",
+        "--dataset-root",
+        str(args.dataset_root),
+        "--output",
+        str(output),
+        "--pattern",
+        args.pattern,
+    ]
+    if args.images_dir:
+        command.extend(["--images-dir", str(args.images_dir)])
+    if args.annotations_dir:
+        command.extend(["--annotations-dir", str(args.annotations_dir)])
+    return command
 
 
 def evaluate_command(args: argparse.Namespace, scope_mode: str, output: Path) -> list[str]:

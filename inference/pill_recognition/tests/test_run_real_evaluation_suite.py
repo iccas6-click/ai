@@ -15,11 +15,13 @@ def test_build_suite_commands_creates_three_evaluations_and_three_comparisons(tm
         limit=None,
         iou_threshold=0.5,
         top_k=5,
+        skip_validation=False,
     )
 
     commands = build_suite_commands(args)
 
     assert [command.name for command in commands] == [
+        "validate",
         "evaluate:none",
         "evaluate:annotation",
         "evaluate:ground-truth",
@@ -27,13 +29,15 @@ def test_build_suite_commands_creates_three_evaluations_and_three_comparisons(tm
         "compare:oracle-vs-unscoped",
         "compare:oracle-vs-annotation",
     ]
-    assert commands[0].output == tmp_path / "outputs" / "real-smartphone-unscoped.json"
-    assert "--scope-mode" in commands[0].args
-    assert "none" in commands[0].args
-    assert commands[3].output == (
+    assert commands[0].output == tmp_path / "outputs" / "real-smartphone-validation.json"
+    assert "pill_recognition.validate_real_dataset" in commands[0].args
+    assert commands[1].output == tmp_path / "outputs" / "real-smartphone-unscoped.json"
+    assert "--scope-mode" in commands[1].args
+    assert "none" in commands[1].args
+    assert commands[4].output == (
         tmp_path / "outputs" / "real-smartphone-annotation-vs-unscoped.json"
     )
-    assert "pill_recognition.compare_real_evaluations" in commands[3].args
+    assert "pill_recognition.compare_real_evaluations" in commands[4].args
 
 
 def test_build_suite_commands_passes_optional_input_dirs_and_limit(tmp_path):
@@ -47,10 +51,16 @@ def test_build_suite_commands_passes_optional_input_dirs_and_limit(tmp_path):
         limit=10,
         iou_threshold=0.6,
         top_k=3,
+        skip_validation=False,
     )
 
     commands = build_suite_commands(args)
-    evaluate_args = commands[0].args
+    validate_args = commands[0].args
+    evaluate_args = commands[1].args
+
+    assert ["--images-dir", "custom-images"] == validate_args[
+        validate_args.index("--images-dir") : validate_args.index("--images-dir") + 2
+    ]
 
     assert ["--images-dir", "custom-images"] == evaluate_args[
         evaluate_args.index("--images-dir") : evaluate_args.index("--images-dir") + 2
@@ -64,3 +74,22 @@ def test_build_suite_commands_passes_optional_input_dirs_and_limit(tmp_path):
     assert ["--top-k", "3"] == evaluate_args[
         evaluate_args.index("--top-k") : evaluate_args.index("--top-k") + 2
     ]
+
+
+def test_build_suite_commands_can_skip_validation(tmp_path):
+    args = argparse.Namespace(
+        dataset_root=Path("dataset"),
+        images_dir=None,
+        annotations_dir=None,
+        output_dir=tmp_path,
+        prefix="smoke",
+        pattern="*.json",
+        limit=None,
+        iou_threshold=0.5,
+        top_k=5,
+        skip_validation=True,
+    )
+
+    commands = build_suite_commands(args)
+
+    assert commands[0].name == "evaluate:none"
