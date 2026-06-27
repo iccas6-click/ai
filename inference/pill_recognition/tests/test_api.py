@@ -106,6 +106,11 @@ def test_health_returns_runtime_policy(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["recognizer"] == "retrieval"
+    assert response.json()["recognition_policy"] == (
+        "rtmdet_single_class_detector + aihub_resnet_retrieval_top_k"
+    )
+    assert response.json()["external_vision_default"] is False
+    assert response.json()["experimental_gemini_enabled"] is False
     assert response.json()["top_k"] == 3
     assert response.json()["max_batch_crops"] == 12
     assert response.json()["max_upload_bytes"] == 10 * 1024 * 1024
@@ -490,6 +495,87 @@ def test_product_refine_can_rank_existing_candidates_without_query():
 
     assert response.status_code == 200
     assert response.json()["results"][0]["pill_id"] == "K-HIGH"
+
+
+def test_product_refine_can_limit_results_to_user_medication_scope():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-USER": AIHubProductInfo(
+                pill_id="K-USER",
+                product_name="사용자복약정",
+                ingredient="성분A",
+                print_front="U1",
+            ),
+            "K-NOT-USER": AIHubProductInfo(
+                pill_id="K-NOT-USER",
+                product_name="복약목록밖정",
+                ingredient="성분B",
+                print_front="N1",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "allowed_pill_ids": ["K-USER", "K-MISSING"],
+            "candidates": [
+                {"pill_id": "K-NOT-USER", "score": 99},
+                {"pill_id": "K-USER", "score": 62},
+            ],
+            "limit": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["candidate_scope"] == {
+        "enabled": True,
+        "allowed_count": 2,
+        "matched_count": 1,
+        "unknown_pill_ids": ["K-MISSING"],
+    }
+    assert payload["count"] == 1
+    assert payload["results"][0]["pill_id"] == "K-USER"
+    assert payload["results"][0]["image_score"] == 62.0
+
+
+def test_product_refine_searches_only_user_medication_scope_when_query_is_present():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-USER": AIHubProductInfo(
+                pill_id="K-USER",
+                product_name="사용자복약정",
+                ingredient="성분A",
+                print_front="U1",
+            ),
+            "K-NOT-USER": AIHubProductInfo(
+                pill_id="K-NOT-USER",
+                product_name="복약목록밖정",
+                ingredient="성분B",
+                print_front="U1",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "allowed_pill_ids": ["K-USER"],
+            "imprint": "U1",
+            "limit": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["results"][0]["pill_id"] == "K-USER"
+    assert payload["results"][0]["source"] == "aihub_metadata_search"
 
 
 def test_product_refine_boosts_candidate_seen_in_multiple_views():

@@ -219,7 +219,14 @@ def create_app(
                 detail="AI Hub product metadata is unavailable.",
             )
         query = request.to_query()
-        results = refine_candidates(product_index, request.candidates, query)
+        allowed_pill_ids = normalize_pill_id_set(request.allowed_pill_ids)
+        scoped_product_index = scope_product_index(product_index, allowed_pill_ids)
+        results = refine_candidates(
+            scoped_product_index,
+            request.candidates,
+            query,
+            allowed_pill_ids=allowed_pill_ids,
+        )
         limit = clamp_limit(request.limit)
         limited_results = results[:limit]
         settings = get_settings()
@@ -235,6 +242,12 @@ def create_app(
                 "color": query.color,
                 "text": query.text,
                 "limit": limit,
+            },
+            "candidate_scope": {
+                "enabled": bool(allowed_pill_ids),
+                "allowed_count": len(allowed_pill_ids),
+                "matched_count": len(scoped_product_index),
+                "unknown_pill_ids": sorted(allowed_pill_ids - set(product_index)),
             },
             "count": len(limited_results),
             "status": status,
@@ -254,6 +267,7 @@ class ProductCandidateInput(BaseModel):
 
 class ProductRefineRequest(BaseModel):
     candidates: list[ProductCandidateInput] = Field(default_factory=list)
+    allowed_pill_ids: list[str] = Field(default_factory=list)
     imprint: str = ""
     shape: str = ""
     color: str = ""
@@ -357,10 +371,14 @@ def refine_candidates(
     product_index: dict,
     candidates: list[ProductCandidateInput],
     query: ProductSearchQuery,
+    allowed_pill_ids: set[str] | None = None,
 ) -> list[dict]:
     merged: dict[str, dict] = {}
+    allowed_pill_ids = allowed_pill_ids or set()
 
     for pill_id, evidence in aggregate_candidate_evidence(candidates).items():
+        if allowed_pill_ids and pill_id not in allowed_pill_ids:
+            continue
         product = product_index.get(pill_id)
         if product is None:
             continue
@@ -426,6 +444,20 @@ def refine_candidates(
     for rank, row in enumerate(results, start=1):
         row["rank"] = rank
     return results
+
+
+def normalize_pill_id_set(pill_ids: list[str]) -> set[str]:
+    return {str(pill_id).strip() for pill_id in pill_ids if str(pill_id).strip()}
+
+
+def scope_product_index(product_index: dict, allowed_pill_ids: set[str]) -> dict:
+    if not allowed_pill_ids:
+        return product_index
+    return {
+        pill_id: product
+        for pill_id, product in product_index.items()
+        if pill_id in allowed_pill_ids
+    }
 
 
 def aggregate_candidate_evidence(

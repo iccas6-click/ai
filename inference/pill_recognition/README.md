@@ -141,6 +141,24 @@ curl -X POST http://127.0.0.1:8001/products/refine \
 
 이 endpoint는 이미지 recognition 후보의 `score`와 AIHub 제품 DB의 각인/색/모양/텍스트 점수를 합산해 다시 정렬합니다. 같은 `pill_id`가 앞/뒷면 crop에서 반복 등장하면 `image_evidence_count`, `views`를 기록하고 작은 multi-view 보너스를 부여합니다. 응답에는 `status`, `status_reason`이 포함되며, 이미지가 헷갈린 경우에도 각인 exact match가 있으면 후보 순위가 앞으로 올라옵니다.
 
+앱에 사용자의 복약목록이 있으면 `allowed_pill_ids`를 함께 보내 후보 공간을 좁힙니다. 이 경우 이미지 후보와 metadata search 결과는 해당 K-ID 목록 안에서만 반환됩니다. 전체 1000종에서 맞히는 것보다 사용자가 실제로 복용 중인 약 5~20개 안에서 재정렬하는 흐름이 실서비스 정확도에 더 유리합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8001/products/refine \
+  -H "Content-Type: application/json" \
+  -d '{
+    "allowed_pill_ids": ["K-001732", "K-012914", "K-000845"],
+    "candidates": [
+      {"pill_id": "K-999999", "score": 97.0, "source": "aihub_resnet_retrieval"},
+      {"pill_id": "K-001732", "score": 62.0, "source": "aihub_resnet_retrieval"}
+    ],
+    "imprint": "W2",
+    "limit": 3
+  }'
+```
+
+응답의 `candidate_scope`는 복약목록 제한 적용 여부, 입력된 K-ID 개수, AIHub metadata에서 실제 찾은 개수, 알 수 없는 K-ID를 반환합니다.
+
 평가:
 
 ```bash

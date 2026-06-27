@@ -71,12 +71,15 @@ flowchart TD
 9. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
 10. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
 
+사용자 복약목록이 있으면 9번에서 `allowed_pill_ids`를 함께 보냅니다. 이렇게 하면 전체 AIHub 1000종에서 다시 고르는 대신 사용자가 실제로 복용 중이거나 등록한 약 안에서만 후보를 재정렬합니다. 실서비스에서는 이 흐름을 우선 사용합니다.
+
 ## Candidate Refinement Payload
 
 `/products/refine`의 `candidates`에는 `/recognize` 또는 `/crops/recognize-batch`에서 받은 후보를 그대로 넣을 수 있습니다. 앞/뒷면 구분이 있으면 `view`를 채웁니다.
 
 ```json
 {
+  "allowed_pill_ids": ["K-001732", "K-012914", "K-000845"],
   "candidates": [
     {
       "pill_id": "K-001732",
