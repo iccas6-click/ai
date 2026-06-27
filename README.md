@@ -33,6 +33,7 @@ ai/
 - AI Hub 공식 ResNet152의 fc 직전 feature로 crop embedding 생성
 - AI Hub 1,000종 reference prototype embedding과 cosine similarity 검색
 - 결과는 제품명, 성분, 업체, 품목기준코드, 일반/전문 여부와 함께 반환
+- Gradio 데모와 FastAPI `/recognize` endpoint 제공
 - Gemini는 기본 경로에서 제외하고, 비교/실험용 provider로만 유지
 
 기존 v1 baseline은 `inference/pill_recognition_legacy/`에 보존되어 있습니다.

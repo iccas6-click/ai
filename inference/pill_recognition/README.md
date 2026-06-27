@@ -32,6 +32,21 @@ source ../.venv/bin/activate
 python -m pill_recognition.app
 ```
 
+백엔드 연동용 HTTP API:
+
+```bash
+cd /home/gyuha_lee/pill/code/ai/inference
+source ../.venv/bin/activate
+python -m pill_recognition.api --host 0.0.0.0 --port 8001
+```
+
+```bash
+curl -X POST http://127.0.0.1:8001/recognize \
+  -F "file=@sample.jpg"
+```
+
+응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `candidates`, `status`, `status_reason`을 포함합니다.
+
 평가:
 
 ```bash
