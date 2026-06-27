@@ -86,6 +86,13 @@ curl "http://127.0.0.1:8001/products/search?imprint=W2&shape=원형&color=하양
 
 이 endpoint는 AIHub 제품 DB를 직접 검색합니다. 앱에서는 인식 후보가 애매할 때 사용자가 읽은 각인, 앞/뒤면 촬영 결과, 또는 OCR 결과를 넣어 후보를 다시 좁히는 데 사용합니다.
 
+제품 후보의 `reference_image_url`은 AIHub reference crop 이미지입니다. 후보 확인 UI에서 제품명/성분과 함께 표시할 수 있습니다.
+
+```bash
+curl http://127.0.0.1:8001/products/K-000001/reference-image \
+  --output reference.png
+```
+
 인식 후보 보정/재정렬 API:
 
 ```bash

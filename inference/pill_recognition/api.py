@@ -10,6 +10,7 @@ from typing import Callable
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,7 @@ from .pipeline import PillRecognitionPipeline
 from .product_db import (
     ProductSearchQuery,
     load_product_index,
+    product_reference_image_url,
     score_product,
     search_products,
 )
@@ -169,6 +171,20 @@ def create_app(
             "count": len(results),
             "results": results,
         }
+
+    @app.get("/products/{pill_id}/reference-image")
+    def get_product_reference_image(pill_id: str):
+        image_path = find_reference_image(get_settings().aihub_mapping, pill_id)
+        if image_path is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Reference image not found for {pill_id}.",
+            )
+        return FileResponse(
+            image_path,
+            media_type="image/png",
+            filename=image_path.name,
+        )
 
     @app.post("/products/refine")
     def refine_product_candidates(request: ProductRefineRequest):
@@ -346,6 +362,7 @@ def refine_candidates(
                     ", ".join(reasons),
                 ),
                 "source": "recognition_candidates",
+                "reference_image_url": product_reference_image_url(pill_id),
             }
         )
         merged[pill_id] = row
@@ -366,6 +383,7 @@ def refine_candidates(
                     "candidate_sources": [],
                     "metadata_score": metadata_score,
                     "source": "aihub_metadata_search",
+                    "reference_image_url": product_reference_image_url(pill_id),
                 }
             )
             merged[pill_id] = row
@@ -462,6 +480,21 @@ def determine_refine_status(
 
 def combined_match_reason(*parts: str | None) -> str:
     return " + ".join(part for part in parts if part)
+
+
+def find_reference_image(mapping_path, pill_id: str):
+    if mapping_path is None:
+        return None
+    if product_reference_image_url(pill_id) is None:
+        return None
+    product_dir = mapping_path.parent / str(pill_id).strip()
+    if not product_dir.is_dir():
+        return None
+    for suffix in ("*.png", "*.jpg", "*.jpeg", "*.webp"):
+        matches = sorted(path for path in product_dir.glob(suffix) if path.is_file())
+        if matches:
+            return matches[0]
+    return None
 
 
 async def read_upload_image(file: UploadFile) -> np.ndarray:

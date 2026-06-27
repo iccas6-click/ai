@@ -6,7 +6,12 @@ import cv2
 import numpy as np
 
 from .image_quality import assess_image_quality
-from .product_db import ProductSearchQuery, load_product_index, search_products
+from .product_db import (
+    ProductSearchQuery,
+    load_product_index,
+    product_reference_image_url,
+    search_products,
+)
 from .retrieval import AIHubResNetRetriever
 from .schemas import (
     PillDetection,
@@ -370,6 +375,7 @@ def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandida
                 color_class1=row.get("color_class1"),
                 color_class2=row.get("color_class2"),
                 matched=row.get("matched"),
+                reference_image_url=product_reference_image_url(row.get("pill_id")),
             )
         )
     return candidates
@@ -404,6 +410,7 @@ def merge_llm_and_db_candidates(
             color_class1=candidate.color_class1,
             color_class2=candidate.color_class2,
             matched=candidate.matched,
+            reference_image_url=candidate.reference_image_url,
         )
         for rank, candidate in enumerate(merged[:limit], start=1)
     ]

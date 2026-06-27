@@ -44,6 +44,7 @@ class ProductCandidate:
     color_class1: str | None = None
     color_class2: str | None = None
     matched: str | None = None
+    reference_image_url: str | None = None
 
 
 @dataclass

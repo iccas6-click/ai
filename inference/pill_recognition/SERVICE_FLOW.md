@@ -27,6 +27,7 @@ flowchart TD
 | `POST /crops/recognize` | 선택된 알약 crop 1개를 제품 후보 Top-3로 재확인 | 아니오 | 단일 반대면 crop 확인 |
 | `POST /crops/recognize-batch` | 여러 crop을 한 번의 batch로 재확인 | 아니오 | 앞/뒷면 또는 여러 선택 알약 재확인 |
 | `GET /products/search` | 각인, 색, 모양, 제품명, 성분으로 AIHub DB 검색 | 아니오 | 직접 검색 UI, OCR/수기 입력 |
+| `GET /products/{pill_id}/reference-image` | AIHub reference crop 이미지 반환 | 아니오 | Top-3 후보 시각 확인 |
 | `POST /products/refine` | 이미지 후보와 각인/색/모양/텍스트 근거를 합쳐 재정렬 | 아니오 | 후보 확정 전 최종 보정 |
 | `GET /health` | 서버 정책과 상태 확인 | 아니오 | 앱 초기화, 운영 모니터링 |
 
@@ -47,7 +48,7 @@ flowchart TD
 2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다.
 3. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
 4. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
-5. 각 detection마다 `candidates[0:3]`, `ingredient`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
+5. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
 6. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
 7. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
    - 알약 앞/뒷면 각인 입력
@@ -124,6 +125,7 @@ flowchart TD
 - 알약끼리 붙거나 겹치면 bbox가 합쳐질 수 있으므로 촬영 가이드에서 간격을 요구합니다.
 - 흰색 원형정처럼 비슷한 제품이 많은 경우 각인 입력 또는 반대면 촬영을 우선 요청합니다.
 - 후보가 좋아 보여도 단일 후보만 표시하지 말고 항상 Top-3와 성분을 함께 보여줍니다.
+- 후보의 `reference_image_url`이 있으면 사용자가 직접 찍은 crop과 나란히 보여줍니다.
 - `ingredient`가 `|`로 구분된 복합 성분이면 프론트에서 쉼표로 나눠 표시합니다.
 - API 응답의 `timings_ms.api_total`은 사용자 체감 latency, `timings_ms.pipeline_get`은 lazy model/index 로딩, `timings_ms.detector`와 `timings_ms.recognition`은 백엔드 병목 판단 지표로 로깅합니다. 서버 시작 후 `health.warmup.status`가 `ok`이면 첫 요청에서도 `pipeline_get`이 작아야 합니다.
 - 실제 스마트폰 검증셋 평가는 `analysis.recognition_top3_misses`, `analysis.detector_misses`, `analysis.warning_images`를 우선 확인해 모델 문제와 촬영 문제를 분리합니다.

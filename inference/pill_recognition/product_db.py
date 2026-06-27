@@ -37,6 +37,7 @@ def search_products(
         row = asdict(product)
         row["score"] = score
         row["matched"] = ", ".join(reasons)
+        row["reference_image_url"] = product_reference_image_url(product.pill_id)
         scored.append(row)
 
     scored.sort(
@@ -137,3 +138,10 @@ def query_imprint_variants(value: str | None) -> set[str]:
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", "", str(value)).upper()
+
+
+def product_reference_image_url(pill_id: str | None) -> str | None:
+    pill_id = str(pill_id or "").strip()
+    if not re.fullmatch(r"K-[0-9A-Z]+", pill_id):
+        return None
+    return f"/products/{pill_id}/reference-image"

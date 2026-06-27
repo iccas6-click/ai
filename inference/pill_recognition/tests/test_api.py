@@ -299,6 +299,45 @@ def test_product_search_returns_aihub_metadata_matches():
     assert payload["results"][0]["pill_id"] == "K-000001"
     assert payload["results"][0]["ingredient"] == "와르파린나트륨"
     assert payload["results"][0]["matched"] == "각인 exact, 모양, 색"
+    assert payload["results"][0]["reference_image_url"] == (
+        "/products/K-000001/reference-image"
+    )
+
+
+def test_product_reference_image_endpoint_returns_aihub_crop(monkeypatch, tmp_path):
+    crop_root = tmp_path / "pill_data_croped"
+    product_dir = crop_root / "K-000001"
+    product_dir.mkdir(parents=True)
+    Image.new("RGB", (12, 12), "white").save(product_dir / "sample.png")
+    mapping_path = crop_root / "pill_label_path_sharp_score.json"
+    mapping_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "pill_recognition.api.get_settings",
+        lambda: Settings(aihub_mapping=mapping_path, warmup_on_startup=False),
+    )
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.get("/products/K-000001/reference-image")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content
+
+
+def test_product_reference_image_endpoint_rejects_unknown_id(monkeypatch, tmp_path):
+    mapping_path = tmp_path / "pill_label_path_sharp_score.json"
+    mapping_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "pill_recognition.api.get_settings",
+        lambda: Settings(aihub_mapping=mapping_path, warmup_on_startup=False),
+    )
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.get("/products/not-a-pill/reference-image")
+
+    assert response.status_code == 404
 
 
 def test_product_search_requires_at_least_one_query_field():
@@ -367,6 +406,9 @@ def test_product_refine_combines_image_candidates_with_metadata_search():
     assert payload["results"][0]["metadata_score"] == 170.0
     assert payload["results"][0]["score"] == 225.0
     assert payload["results"][0]["matched"] == "image candidate + 각인 exact, 모양, 색"
+    assert payload["results"][0]["reference_image_url"] == (
+        "/products/K-WARFARIN/reference-image"
+    )
 
 
 def test_product_refine_can_rank_existing_candidates_without_query():

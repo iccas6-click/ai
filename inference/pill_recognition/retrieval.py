@@ -17,6 +17,7 @@ from pill_recognition_legacy.aihub_classifier import (
 
 from .query_preprocess import preprocess_query_crop
 from .schemas import ProductCandidate
+from .product_db import product_reference_image_url
 from .settings import Settings
 from .visual_features import CropVisualFeatures, estimate_crop_visual_features
 
@@ -196,6 +197,7 @@ def product_candidate_from_aihub_product(
         color_class1=product.color_class1 if product else None,
         color_class2=product.color_class2 if product else None,
         matched=matched,
+        reference_image_url=product_reference_image_url(pill_id),
     )
 
 
