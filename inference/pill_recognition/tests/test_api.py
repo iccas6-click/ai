@@ -467,6 +467,115 @@ def test_product_search_reports_missing_product_metadata():
     assert response.status_code == 503
 
 
+def test_product_scope_resolve_accepts_pill_ids_item_seqs_and_product_names():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-WARFARIN": AIHubProductInfo(
+                pill_id="K-WARFARIN",
+                product_name="대화와르파린나트륨정",
+                ingredient="와르파린나트륨",
+                item_seq="196400046",
+            ),
+            "K-ACYCLOVIR": AIHubProductInfo(
+                pill_id="K-ACYCLOVIR",
+                product_name="진양아시클로버정",
+                ingredient="아시클로버",
+                item_seq="200000001",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/scope/resolve",
+        json={
+            "pill_ids": ["K-WARFARIN"],
+            "item_seqs": ["200000001"],
+            "product_names": ["대화와르파린나트륨정"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["allowed_pill_ids"] == ["K-WARFARIN", "K-ACYCLOVIR"]
+    assert payload["count"] == 2
+    assert payload["unresolved"] == []
+    assert [row["input_type"] for row in payload["resolved"]] == [
+        "pill_id",
+        "item_seq",
+        "product_name",
+    ]
+    assert payload["resolved"][0]["matches"][0]["ingredient"] == "와르파린나트륨"
+    assert payload["resolved"][1]["matches"][0]["match_type"] == "item_seq_exact"
+    assert payload["resolved"][2]["matches"][0]["reference_image_url"] == (
+        "/products/K-WARFARIN/reference-image"
+    )
+
+
+def test_product_scope_resolve_limits_partial_product_name_matches_and_reports_unknowns():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-ONE": AIHubProductInfo(
+                pill_id="K-ONE",
+                product_name="테스트정A",
+                item_seq="1",
+            ),
+            "K-TWO": AIHubProductInfo(
+                pill_id="K-TWO",
+                product_name="테스트정B",
+                item_seq="2",
+            ),
+            "K-THREE": AIHubProductInfo(
+                pill_id="K-THREE",
+                product_name="테스트정C",
+                item_seq="3",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/scope/resolve",
+        json={
+            "pill_ids": ["K-MISSING"],
+            "product_names": ["테스트"],
+            "limit_per_query": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["allowed_pill_ids"] == ["K-ONE", "K-TWO"]
+    assert payload["count"] == 2
+    assert payload["limit_per_query"] == 2
+    assert payload["resolved"][0]["match_type"] == "product_name_partial"
+    assert payload["resolved"][0]["count"] == 2
+    assert payload["unresolved"] == [{"input_type": "pill_id", "input": "K-MISSING"}]
+
+
+def test_product_scope_resolve_requires_at_least_one_identifier():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.post("/products/scope/resolve", json={})
+
+    assert response.status_code == 400
+
+
+def test_product_scope_resolve_reports_missing_product_metadata():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/scope/resolve",
+        json={"item_seqs": ["196400046"]},
+    )
+
+    assert response.status_code == 503
+
+
 def test_product_refine_combines_image_candidates_with_metadata_search():
     app = create_app(
         lambda: FakePipeline(),

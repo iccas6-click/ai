@@ -68,6 +68,20 @@ curl -X POST http://127.0.0.1:8001/recognize \
 
 사용자의 복약목록 K-ID가 있으면 최초 인식 요청부터 검색 범위를 줄일 수 있습니다. `allowed_pill_ids`는 JSON 배열 문자열, 쉼표 구분, 공백 구분을 모두 허용합니다.
 
+앱이 K-ID가 아니라 `품목기준코드(item_seq)`나 제품명만 알고 있으면 먼저 scope resolve API로 `allowed_pill_ids`를 만듭니다.
+
+```bash
+curl -X POST http://127.0.0.1:8001/products/scope/resolve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "item_seqs": ["196400046", "200000001"],
+    "product_names": ["대화와르파린나트륨정"],
+    "limit_per_query": 5
+  }'
+```
+
+응답의 `allowed_pill_ids`를 `/recognize`, `/crops/recognize-batch`, `/products/refine`에 그대로 넣습니다. 이 단계는 모델 추론이 아니라 AIHub metadata lookup이므로 빠르게 처리되며, 실서비스에서는 사용자의 복약목록을 불러온 직후 한 번 수행해 캐시하는 흐름이 좋습니다. 제품명 partial match는 너무 넓어질 수 있으므로 `limit_per_query` 기본값은 5, 최대값은 20입니다.
+
 ```bash
 curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg" \
@@ -158,6 +172,21 @@ curl http://127.0.0.1:8001/products/K-000001
 curl http://127.0.0.1:8001/products/K-000001/reference-image \
   --output reference.png
 ```
+
+복약목록 scope 변환 API:
+
+```bash
+curl -X POST http://127.0.0.1:8001/products/scope/resolve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pill_ids": ["K-001732"],
+    "item_seqs": ["196400046"],
+    "product_names": ["진양아시클로버정"],
+    "limit_per_query": 5
+  }'
+```
+
+이 endpoint는 앱이나 백엔드가 들고 있는 복약목록 식별자를 recognition용 K-ID 목록으로 바꿉니다. `pill_ids`는 exact match, `item_seqs`는 품목기준코드 exact match, `product_names`는 제품명 exact match 후 partial match 순서로 조회합니다. 응답에는 중복 제거된 `allowed_pill_ids`, 입력별 `resolved`, `unresolved`, 그리고 각 match의 제품명, 성분, reference image URL이 포함됩니다.
 
 인식 후보 보정/재정렬 API:
 

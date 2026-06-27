@@ -56,6 +56,54 @@ def product_to_response_row(product: AIHubProductInfo) -> dict:
     return row
 
 
+def find_products_by_item_seq(
+    products: dict[str, AIHubProductInfo],
+    item_seq: str,
+) -> list[AIHubProductInfo]:
+    target = normalize_text(item_seq)
+    if not target:
+        return []
+    return sorted(
+        (
+            product
+            for product in products.values()
+            if normalize_text(product.item_seq or "") == target
+        ),
+        key=product_sort_key,
+    )
+
+
+def find_products_by_name(
+    products: dict[str, AIHubProductInfo],
+    product_name: str,
+    limit: int,
+) -> tuple[str, list[AIHubProductInfo]]:
+    target = normalize_text(product_name)
+    if not target:
+        return "none", []
+
+    exact_matches = sorted(
+        (
+            product
+            for product in products.values()
+            if normalize_text(product.product_name or "") == target
+        ),
+        key=product_sort_key,
+    )
+    if exact_matches:
+        return "product_name_exact", exact_matches[: max(1, limit)]
+
+    partial_matches = sorted(
+        (
+            product
+            for product in products.values()
+            if target in normalize_text(product.product_name or "")
+        ),
+        key=product_sort_key,
+    )
+    return "product_name_partial", partial_matches[: max(1, limit)]
+
+
 def score_product(
     product: AIHubProductInfo,
     query: ProductSearchQuery,
@@ -144,6 +192,10 @@ def query_imprint_variants(value: str | None) -> set[str]:
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", "", str(value)).upper()
+
+
+def product_sort_key(product: AIHubProductInfo) -> tuple[str, str]:
+    return (product.product_name or "", product.pill_id)
 
 
 def product_reference_image_url(pill_id: str | None) -> str | None:

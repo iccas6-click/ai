@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 from .pipeline import PillRecognitionPipeline
 from .product_db import (
     ProductSearchQuery,
+    find_products_by_item_seq,
+    find_products_by_name,
     load_product_index,
     product_reference_image_url,
     product_to_response_row,
@@ -192,6 +194,21 @@ def create_app(
             "results": results,
         }
 
+    @app.post("/products/scope/resolve")
+    def resolve_product_scope(request: ProductScopeResolveRequest):
+        if not request.has_inputs():
+            raise HTTPException(
+                status_code=400,
+                detail="At least one pill_id, item_seq, or product_name is required.",
+            )
+        product_index = product_index_factory()
+        if not product_index:
+            raise HTTPException(
+                status_code=503,
+                detail="AI Hub product metadata is unavailable.",
+            )
+        return resolve_scope_request(product_index, request)
+
     @app.get("/products/{pill_id}")
     def get_product_detail(pill_id: str):
         product_index = product_index_factory()
@@ -281,6 +298,19 @@ class ProductCandidateInput(BaseModel):
     view: str | None = None
 
 
+class ProductScopeResolveRequest(BaseModel):
+    pill_ids: list[str] = Field(default_factory=list)
+    item_seqs: list[str] = Field(default_factory=list)
+    product_names: list[str] = Field(default_factory=list)
+    limit_per_query: int = 5
+
+    def has_inputs(self) -> bool:
+        return any(
+            normalize_nonempty_values(values)
+            for values in (self.pill_ids, self.item_seqs, self.product_names)
+        )
+
+
 class ProductRefineRequest(BaseModel):
     candidates: list[ProductCandidateInput] = Field(default_factory=list)
     allowed_pill_ids: list[str] = Field(default_factory=list)
@@ -308,6 +338,73 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def resolve_scope_request(product_index: dict, request: ProductScopeResolveRequest) -> dict:
+    allowed_pill_ids: list[str] = []
+    seen_pill_ids: set[str] = set()
+    resolved = []
+    unresolved = []
+    limit_per_query = max(1, min(int(request.limit_per_query), 20))
+
+    def add_products(input_type: str, raw_input: str, match_type: str, products: list):
+        matches = []
+        for product in products:
+            row = product_to_response_row(product)
+            row["match_type"] = match_type
+            matches.append(row)
+            if product.pill_id not in seen_pill_ids:
+                seen_pill_ids.add(product.pill_id)
+                allowed_pill_ids.append(product.pill_id)
+        if matches:
+            resolved.append(
+                {
+                    "input_type": input_type,
+                    "input": raw_input,
+                    "match_type": match_type,
+                    "count": len(matches),
+                    "matches": matches,
+                }
+            )
+            return
+        unresolved.append({"input_type": input_type, "input": raw_input})
+
+    for pill_id in normalize_nonempty_values(request.pill_ids):
+        product = product_index.get(pill_id)
+        add_products(
+            "pill_id",
+            pill_id,
+            "pill_id_exact",
+            [product] if product is not None else [],
+        )
+
+    for item_seq in normalize_nonempty_values(request.item_seqs):
+        add_products(
+            "item_seq",
+            item_seq,
+            "item_seq_exact",
+            find_products_by_item_seq(product_index, item_seq),
+        )
+
+    for product_name in normalize_nonempty_values(request.product_names):
+        match_type, matches = find_products_by_name(
+            product_index,
+            product_name,
+            limit=limit_per_query,
+        )
+        add_products("product_name", product_name, match_type, matches)
+
+    return {
+        "allowed_pill_ids": allowed_pill_ids,
+        "count": len(allowed_pill_ids),
+        "resolved": resolved,
+        "unresolved": unresolved,
+        "limit_per_query": limit_per_query,
+    }
+
+
+def normalize_nonempty_values(values: list[str]) -> list[str]:
+    return [str(value).strip() for value in values if str(value).strip()]
 
 
 def initial_warmup_state() -> dict:

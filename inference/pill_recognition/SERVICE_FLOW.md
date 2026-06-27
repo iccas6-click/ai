@@ -19,6 +19,8 @@
 ```mermaid
 flowchart TD
     A["사용자: 여러 알약 사진 촬영"] --> B["POST /recognize"]
+    L["사용자 복약목록 item_seq/제품명"] --> M["POST /products/scope/resolve"]
+    M --> B
     B --> C["RTMDet pill bbox 탐지"]
     C --> D["알약별 crop 생성"]
     D --> E["AIHub ResNet retrieval Top-3"]
@@ -41,6 +43,7 @@ flowchart TD
 | `GET /products/search` | 각인, 색, 모양, 제품명, 성분으로 AIHub DB 검색 | 아니오 | 직접 검색 UI, OCR/수기 입력 |
 | `GET /products/{pill_id}` | AIHub 제품 상세 metadata 반환 | 아니오 | 후보 상세 확인 |
 | `GET /products/{pill_id}/reference-image` | AIHub reference crop 이미지 반환 | 아니오 | Top-3 후보 시각 확인 |
+| `POST /products/scope/resolve` | K-ID, 품목기준코드, 제품명을 recognition scope용 K-ID 목록으로 변환 | 아니오 | 복약목록 기반 scoped recognition 준비 |
 | `POST /products/refine` | 이미지 후보와 각인/색/모양/텍스트 근거를 합쳐 재정렬 | 아니오 | 후보 확정 전 최종 보정 |
 | `GET /health` | 서버 정책과 상태 확인 | 아니오 | 앱 초기화, 운영 모니터링 |
 
@@ -58,21 +61,35 @@ flowchart TD
 ## Recommended App Sequence
 
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
-2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. 사용자의 복약목록 K-ID가 있으면 `allowed_pill_ids`를 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
-3. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
-4. 응답의 `candidate_scope.retrieval_id_match_count`가 0이면 복약목록 K-ID 매핑 오류로 보고 직접 검색 또는 복약목록 수정 UI로 보냅니다.
-5. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
-6. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
-7. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
-8. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
+2. 복약목록이 있으면 앱/백엔드는 `POST /products/scope/resolve`로 K-ID, 품목기준코드, 제품명을 `allowed_pill_ids`로 변환합니다.
+3. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. `allowed_pill_ids`가 있으면 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
+4. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
+5. 응답의 `candidate_scope.retrieval_id_match_count`가 0이면 복약목록 K-ID 매핑 오류로 보고 직접 검색 또는 복약목록 수정 UI로 보냅니다.
+6. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
+7. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
+8. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
+9. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
    - 알약 앞/뒷면 각인 입력
    - 선택된 알약의 반대면 crop 추가 촬영
    - 더 가까운 재촬영
-9. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다. 이때도 같은 `allowed_pill_ids`를 함께 보냅니다.
-10. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
-11. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
+10. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다. 이때도 같은 `allowed_pill_ids`를 함께 보냅니다.
+11. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
+12. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
 
-사용자 복약목록이 있으면 10번의 `/products/refine`에도 `allowed_pill_ids`를 함께 보냅니다. 이렇게 하면 전체 AIHub 1000종에서 다시 고르는 대신 사용자가 실제로 복용 중이거나 등록한 약 안에서만 후보를 재정렬합니다. 실서비스에서는 이 흐름을 우선 사용합니다.
+사용자 복약목록이 있으면 11번의 `/products/refine`에도 `allowed_pill_ids`를 함께 보냅니다. 이렇게 하면 전체 AIHub 1000종에서 다시 고르는 대신 사용자가 실제로 복용 중이거나 등록한 약 안에서만 후보를 재정렬합니다. 실서비스에서는 이 흐름을 우선 사용합니다.
+
+복약목록이 K-ID가 아니라 품목기준코드 또는 제품명으로 저장되어 있으면 최초 촬영 전에 `/products/scope/resolve`를 호출합니다. 이 endpoint는 모델 추론 없이 AIHub metadata를 조회하므로 앱 세션 시작 시 한 번 호출하고 결과를 캐시할 수 있습니다.
+
+```json
+{
+  "pill_ids": ["K-001732"],
+  "item_seqs": ["196400046"],
+  "product_names": ["진양아시클로버정"],
+  "limit_per_query": 5
+}
+```
+
+응답의 `allowed_pill_ids`를 이후 `/recognize`, `/crops/recognize-batch`, `/products/refine` 요청에 그대로 전달합니다. `unresolved`가 있으면 복약목록 DB 매핑을 먼저 점검합니다.
 
 ## Candidate Refinement Payload
 
