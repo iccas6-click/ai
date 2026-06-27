@@ -20,7 +20,7 @@ image
 ```bash
 cd /home/gyuha_lee/pill/code/ai/inference
 source ../.venv/bin/activate
-python -m pill_recognition.build_retrieval_index --samples-per-class 32
+python -m pill_recognition.build_retrieval_index --samples-per-class 32 --index-mode prototype
 ```
 
 ```bash
@@ -37,6 +37,8 @@ python -m pill_recognition.evaluate_retrieval \
   --offset 64 \
   --output outputs/evaluation/retrieval-aihub-resnet.json
 ```
+
+`--index-mode reference`는 sampled reference embedding을 모두 저장하는 비교 실험용 옵션입니다. 현재 AIHub held-out crop 기준으로는 prototype 평균 인덱스가 더 안정적입니다.
 
 Gemini는 비교 실험용으로만 유지합니다.
 

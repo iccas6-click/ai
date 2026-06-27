@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--index-mode",
         choices=["prototype", "reference"],
-        default="reference",
+        default="prototype",
         help="prototype averages embeddings per class; reference stores every sampled reference image.",
     )
     return parser.parse_args()
