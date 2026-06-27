@@ -138,6 +138,87 @@ def test_product_search_reports_missing_product_metadata():
     assert response.status_code == 503
 
 
+def test_product_refine_combines_image_candidates_with_metadata_search():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-WARFARIN": AIHubProductInfo(
+                pill_id="K-WARFARIN",
+                product_name="대화와르파린나트륨정",
+                ingredient="와르파린나트륨",
+                print_front="W분할선2",
+                drug_shape="원형",
+                color_class1="하양",
+            ),
+            "K-OTHER": AIHubProductInfo(
+                pill_id="K-OTHER",
+                product_name="다른정",
+                ingredient="다른성분",
+                print_front="AB",
+                drug_shape="장방형",
+                color_class1="노랑",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "candidates": [
+                {"pill_id": "K-OTHER", "score": 95.0, "source": "retrieval"},
+                {"pill_id": "K-WARFARIN", "score": 55.0, "source": "retrieval"},
+            ],
+            "imprint": "W2",
+            "shape": "원형",
+            "color": "하양",
+            "limit": 3,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 2
+    assert payload["results"][0]["pill_id"] == "K-WARFARIN"
+    assert payload["results"][0]["image_score"] == 55.0
+    assert payload["results"][0]["metadata_score"] == 170.0
+    assert payload["results"][0]["score"] == 225.0
+    assert payload["results"][0]["matched"] == "image candidate + 각인 exact, 모양, 색"
+
+
+def test_product_refine_can_rank_existing_candidates_without_query():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-LOW": AIHubProductInfo(pill_id="K-LOW", product_name="낮은후보"),
+            "K-HIGH": AIHubProductInfo(pill_id="K-HIGH", product_name="높은후보"),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "candidates": [
+                {"pill_id": "K-LOW", "score": 30},
+                {"pill_id": "K-HIGH", "score": 88},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["pill_id"] == "K-HIGH"
+
+
+def test_product_refine_requires_candidates_or_query():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.post("/products/refine", json={})
+
+    assert response.status_code == 400
+
+
 def image_bytes(width: int, height: int) -> bytes:
     array = np.full((height, width, 3), 255, dtype=np.uint8)
     image = Image.fromarray(array)

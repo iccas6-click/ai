@@ -55,6 +55,25 @@ curl "http://127.0.0.1:8001/products/search?imprint=W2&shape=원형&color=하양
 
 이 endpoint는 AIHub 제품 DB를 직접 검색합니다. 앱에서는 인식 후보가 애매할 때 사용자가 읽은 각인, 앞/뒤면 촬영 결과, 또는 OCR 결과를 넣어 후보를 다시 좁히는 데 사용합니다.
 
+인식 후보 보정/재정렬 API:
+
+```bash
+curl -X POST http://127.0.0.1:8001/products/refine \
+  -H "Content-Type: application/json" \
+  -d '{
+    "candidates": [
+      {"pill_id": "K-001732", "score": 55.0, "source": "aihub_resnet_retrieval"},
+      {"pill_id": "K-012914", "score": 92.0, "source": "aihub_resnet_retrieval"}
+    ],
+    "imprint": "W2",
+    "shape": "원형",
+    "color": "하양",
+    "limit": 3
+  }'
+```
+
+이 endpoint는 이미지 recognition 후보의 `score`와 AIHub 제품 DB의 각인/색/모양/텍스트 점수를 합산해 다시 정렬합니다. 이미지가 헷갈린 경우에도 각인 exact match가 있으면 후보 순위가 앞으로 올라옵니다.
+
 평가:
 
 ```bash
