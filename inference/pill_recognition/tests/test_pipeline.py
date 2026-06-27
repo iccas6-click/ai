@@ -25,6 +25,7 @@ class FakeVisionProvider:
             imprint_front="W2",
             shape="원형",
             color="하양",
+            possible_product_names=["Gemini 와르파린 후보"],
             confidence=0.8,
         )
 
@@ -55,7 +56,9 @@ def test_pipeline_uses_vision_clues_to_search_product_db():
     result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
 
     assert result.model_version == "rtmdet-single-class+fake-vision+aihub-db"
-    assert result.detections[0].candidates[0].pill_id == "K-000001"
+    assert result.detections[0].candidates[0].pill_id == "GEMINI"
+    assert result.detections[0].candidates[0].source == "gemini"
+    assert result.detections[0].candidates[1].pill_id == "K-000001"
     assert result.detections[0].status == "needs_confirmation"
 
 

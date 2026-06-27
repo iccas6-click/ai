@@ -58,11 +58,16 @@ class PillRecognitionPipeline:
             x1, y1, x2, y2 = crop_bbox
             crop = image_rgb[y1:y2, x1:x2]
             observation = inspect_crop_safely(self.vision_provider, crop)
-            candidates = rank_product_candidates(
+            db_candidates = rank_product_candidates(
                 search_products(
                     self.product_index,
                     product_query_from_observation(observation, self.settings.top_k),
                 ),
+                self.settings.top_k,
+            )
+            candidates = merge_llm_and_db_candidates(
+                observation,
+                db_candidates,
                 self.settings.top_k,
             )
             detector_confidence = (
@@ -139,6 +144,7 @@ def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandida
                 rank=rank,
                 pill_id=row["pill_id"],
                 score=int(row.get("score", 0)),
+                source="aihub_db",
                 product_name=row.get("product_name"),
                 ingredient=row.get("ingredient"),
                 company=row.get("company"),
@@ -153,6 +159,66 @@ def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandida
             )
         )
     return candidates
+
+
+def merge_llm_and_db_candidates(
+    observation: VisionObservation,
+    db_candidates: list[ProductCandidate],
+    limit: int,
+) -> list[ProductCandidate]:
+    merged = llm_product_candidates(observation)
+    seen_names = {normalize_name(candidate.product_name) for candidate in merged}
+    for candidate in db_candidates:
+        if normalize_name(candidate.product_name) in seen_names:
+            continue
+        merged.append(candidate)
+    return [
+        ProductCandidate(
+            rank=rank,
+            pill_id=candidate.pill_id,
+            score=candidate.score,
+            source=candidate.source,
+            product_name=candidate.product_name,
+            ingredient=candidate.ingredient,
+            company=candidate.company,
+            item_seq=candidate.item_seq,
+            etc_otc_code=candidate.etc_otc_code,
+            print_front=candidate.print_front,
+            print_back=candidate.print_back,
+            drug_shape=candidate.drug_shape,
+            color_class1=candidate.color_class1,
+            color_class2=candidate.color_class2,
+            matched=candidate.matched,
+        )
+        for rank, candidate in enumerate(merged[:limit], start=1)
+    ]
+
+
+def llm_product_candidates(observation: VisionObservation) -> list[ProductCandidate]:
+    confidence = observation.confidence if observation.confidence is not None else 0.5
+    base_score = max(1, min(100, round(confidence * 100)))
+    candidates = []
+    seen = set()
+    for index, product_name in enumerate(observation.possible_product_names, start=1):
+        normalized = normalize_name(product_name)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append(
+            ProductCandidate(
+                rank=index,
+                pill_id="GEMINI",
+                score=max(1, base_score - ((index - 1) * 5)),
+                source="gemini",
+                product_name=product_name,
+                matched="Gemini visual recognition",
+            )
+        )
+    return candidates
+
+
+def normalize_name(value: str | None) -> str:
+    return "".join(str(value or "").split()).upper()
 
 
 def determine_status(

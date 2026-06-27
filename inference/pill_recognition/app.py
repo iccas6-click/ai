@@ -109,6 +109,7 @@ def format_candidates(candidates) -> str:
         return "-"
     return "\n".join(
         f"{candidate.rank}. {candidate.pill_id} | {candidate.product_name or '-'} | "
+        f"{candidate.source} | "
         f"성분: {format_ingredient(candidate.ingredient or '') or '-'} | "
         f"점수 {candidate.score} | {candidate.matched or '-'}"
         for candidate in candidates

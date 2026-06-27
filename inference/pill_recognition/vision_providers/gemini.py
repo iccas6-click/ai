@@ -11,8 +11,21 @@ from ..schemas import VisionObservation
 
 
 PROMPT = """
-You inspect one cropped pill image. Return only strict JSON.
-Do not identify a medication as final truth. Extract visible clues and possible names.
+You inspect one cropped pill image for a Korean pill recognition app.
+Return only strict JSON.
+
+Primary goal:
+- Identify the most likely medication/product names from the image.
+- Use imprint, shape, color, visible text, and your visual knowledge.
+- Put the best guesses first in possible_product_names.
+
+Rules:
+- Do not refuse just because this is a medication image.
+- Do not give medical advice, dosage advice, or safety advice.
+- If the pill is unclear, still return your best visual candidates with lower confidence.
+- If no pill is visible, return empty possible_product_names and confidence 0.
+- Extract imprints exactly as seen. If there is a split line, write compact text such as "W2" when visually appropriate.
+- Use null only for fields that are not visible.
 
 Schema:
 {

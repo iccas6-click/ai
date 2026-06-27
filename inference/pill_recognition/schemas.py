@@ -22,6 +22,7 @@ class ProductCandidate:
     rank: int
     pill_id: str
     score: int
+    source: str = "aihub_db"
     product_name: str | None = None
     ingredient: str | None = None
     company: str | None = None
