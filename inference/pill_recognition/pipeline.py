@@ -3,6 +3,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .image_quality import assess_image_quality
 from .product_db import ProductSearchQuery, load_product_index, search_products
 from .retrieval import AIHubResNetRetriever
 from .schemas import (
@@ -59,6 +60,7 @@ class PillRecognitionPipeline:
     def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
         image_rgb = ensure_rgb_uint8(image_rgb)
         height, width = image_rgb.shape[:2]
+        warnings = assess_image_quality(image_rgb, context="image")
         detected_crops = []
         detections = []
         detector = self._get_detector()
@@ -120,7 +122,6 @@ class PillRecognitionPipeline:
                 )
             )
 
-        warnings = []
         if not self.product_index:
             warnings.append("AI Hub product metadata is unavailable.")
         if not detections:
@@ -142,6 +143,9 @@ class PillRecognitionPipeline:
 
     def recognize_crops_batch(self, crops_rgb: list[np.ndarray]) -> RecognitionResult:
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
+        warnings = []
+        for index, crop in enumerate(crops, start=1):
+            warnings.extend(assess_image_quality(crop, context=f"crop {index}"))
         recognition_batches, vision_observations = self._recognize_crops(crops)
         detections = []
         max_width = 0
@@ -180,7 +184,7 @@ class PillRecognitionPipeline:
             pill_count=len(detections),
             model_version=f"crop-batch+{self._recognizer_version()}",
             detections=detections,
-            warnings=[] if detections else ["No crop was provided."],
+            warnings=warnings if detections else ["No crop was provided."],
         )
 
     def _recognize_crops(

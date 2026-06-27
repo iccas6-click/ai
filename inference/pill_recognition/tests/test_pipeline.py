@@ -200,6 +200,36 @@ def test_pipeline_recognize_crops_batch_uses_single_retriever_call():
     assert retriever.calls == 1
 
 
+def test_pipeline_returns_capture_quality_warnings_for_bad_input():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=SingleFakeDetector(),
+        retriever=EmptyRetriever(),
+        product_index={},
+    )
+
+    result = pipeline.recognize(np.zeros((128, 128, 3), dtype=np.uint8))
+
+    assert any("resolution is low" in warning for warning in result.warnings)
+    assert any("too dark" in warning for warning in result.warnings)
+
+
+def test_pipeline_returns_crop_quality_warnings_for_batch_crops():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=ExplodingDetector(),
+        retriever=EmptyRetriever(),
+        product_index={},
+    )
+
+    result = pipeline.recognize_crops_batch(
+        [np.zeros((40, 40, 3), dtype=np.uint8) + 250]
+    )
+
+    assert any("crop 1" in warning for warning in result.warnings)
+    assert any("resolution is low" in warning for warning in result.warnings)
+
+
 def test_pipeline_preserves_vision_observation_for_provider_recognizer():
     pipeline = PillRecognitionPipeline(
         settings=Settings(top_k=3, recognizer="gemini"),

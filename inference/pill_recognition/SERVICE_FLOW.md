@@ -46,15 +46,16 @@ flowchart TD
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
 2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다.
 3. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
-4. 각 detection마다 `candidates[0:3]`, `ingredient`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
-5. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
-6. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
+4. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
+5. 각 detection마다 `candidates[0:3]`, `ingredient`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
+6. `needs_confirmation`이면 사용자가 후보 중 하나를 선택하게 합니다.
+7. `ambiguous` 또는 `low_confidence`이면 다음 중 하나를 요청합니다.
    - 알약 앞/뒷면 각인 입력
    - 선택된 알약의 반대면 crop 추가 촬영
    - 더 가까운 재촬영
-7. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다.
-8. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
-9. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
+8. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다.
+9. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
+10. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
 
 ## Candidate Refinement Payload
 
@@ -103,6 +104,18 @@ flowchart TD
 | 모호성 margin | 3 | `PILL_CANDIDATE_AMBIGUITY_MARGIN` |
 
 `GET /health`는 현재 `recognizer`, `top_k`, `max_batch_crops`, `max_upload_bytes`, `max_image_pixels`를 반환합니다. 프론트는 앱 시작 시 이 값을 읽어 업로드 UI 제한과 촬영 후 리사이즈 정책에 반영할 수 있습니다.
+
+## Capture Quality Warnings
+
+`RecognitionResult.warnings`는 모델 후보와 별도로 촬영 품질 문제를 알려줍니다. 현재 서버는 다음 입력을 경고합니다.
+
+- 해상도가 너무 낮은 원본 이미지 또는 crop
+- 너무 어두운 이미지
+- 과노출 또는 반사가 심한 이미지
+- 대비가 낮아 알약 경계가 약한 이미지
+- 흐리거나 흔들린 이미지
+
+프론트는 `warnings`가 비어 있지 않으면 Top-3 후보를 보여주더라도 “확정” 흐름으로 바로 보내지 말고, 같은 화면에서 재촬영 또는 해당 crop 재촬영을 우선 제안해야 합니다.
 
 ## UX Notes
 
