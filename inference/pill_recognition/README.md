@@ -17,6 +17,18 @@ image
 앱 연동 시 호출 순서와 status별 사용자 흐름은 [`SERVICE_FLOW.md`](./SERVICE_FLOW.md)를 따릅니다.
 모델 선택 근거와 외부 자료 검토 요약은 [`RESEARCH_NOTES.md`](./RESEARCH_NOTES.md)에 정리합니다.
 
+## Production 방향
+
+실서비스 기본 경로는 외부 멀티모달 LLM 호출이 아니라 로컬 GPU 기반 retrieval입니다.
+
+- RTMDet는 제품명을 맞히지 않고 알약 위치만 찾습니다.
+- 제품 인식은 crop을 AIHub ResNet152 embedding으로 변환한 뒤 reference index에서 Top-K 검색합니다.
+- 응답은 단일 정답이 아니라 항상 제품 후보 Top-3, 성분, reference image, 확인 status를 반환합니다.
+- Gemini 같은 외부 비전 LLM은 latency, 비용, 출력 변동성 때문에 기본 경로에서 제외합니다.
+- 낮은 신뢰도, 비슷한 후보, 흐림/반사/겹침은 사용자 확인, 반대면 crop, 각인 입력, 수동 검색으로 넘깁니다.
+
+즉 이 서비스의 책임은 "복용 가능한 최종 판정"이 아니라 "사진 속 알약 후보를 빠르게 좁히고 사용자가 확인할 수 있게 만드는 것"입니다.
+
 ## 실행
 
 기본값은 외부 API 없이 실행되는 retrieval recognizer입니다. 실행 전 AI Hub reference index를 한 번 생성해야 합니다.
@@ -301,10 +313,11 @@ python -m pill_recognition.evaluate_real_dataset \
 - `status_review`: `no_candidate`, `low_confidence`, `ambiguous`로 사용자 재확인이 필요한 detection
 - `warning_images`: 흐림, 과노출, 저해상도 등 촬영 품질 경고가 있는 사진
 
-Gemini는 비교 실험용으로만 유지합니다.
+Gemini는 비교 실험용으로만 유지합니다. 실서비스 기본 경로에서는 켜지지 않으며, 의도적으로 실험 플래그를 함께 지정해야 합니다.
 
 ```bash
 export PILL_RECOGNIZER=gemini
+export PILL_ENABLE_EXPERIMENTAL_GEMINI=1
 export GEMINI_API_KEY=...
 export PILL_GEMINI_MODEL=gemini-3.5-flash
 python -m pill_recognition.app

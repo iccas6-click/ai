@@ -64,6 +64,9 @@ def create_app(
         return {
             "status": "ok",
             "recognizer": settings.recognizer,
+            "recognition_policy": "rtmdet_single_class_detector + aihub_resnet_retrieval_top_k",
+            "external_vision_default": False,
+            "experimental_gemini_enabled": settings.allow_gemini_recognizer,
             "top_k": settings.top_k,
             "max_batch_crops": settings.max_batch_crops,
             "max_upload_bytes": settings.max_upload_bytes,

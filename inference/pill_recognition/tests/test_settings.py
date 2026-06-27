@@ -28,6 +28,7 @@ def test_settings_defaults_to_service_top3(monkeypatch, tmp_path):
     assert settings.max_image_pixels == 12_000_000
     assert settings.candidate_min_score == 70
     assert settings.candidate_ambiguity_margin == 3
+    assert settings.allow_gemini_recognizer is False
     assert settings.retrieval_query_preprocess == "none"
     assert settings.warmup_on_startup is True
 
@@ -39,6 +40,7 @@ def test_settings_reads_candidate_policy_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("PILL_MAX_IMAGE_PIXELS", "5678")
     monkeypatch.setenv("PILL_CANDIDATE_MIN_SCORE", "80")
     monkeypatch.setenv("PILL_CANDIDATE_AMBIGUITY_MARGIN", "5")
+    monkeypatch.setenv("PILL_ENABLE_EXPERIMENTAL_GEMINI", "1")
     monkeypatch.setenv("PILL_RETRIEVAL_QUERY_PREPROCESS", "foreground_dark")
     monkeypatch.setenv("PILL_WARMUP_ON_STARTUP", "0")
     monkeypatch.setattr("pill_recognition.settings.PROJECT_ROOT", tmp_path)
@@ -51,5 +53,6 @@ def test_settings_reads_candidate_policy_from_env(monkeypatch, tmp_path):
     assert settings.max_image_pixels == 5678
     assert settings.candidate_min_score == 80
     assert settings.candidate_ambiguity_margin == 5
+    assert settings.allow_gemini_recognizer is True
     assert settings.retrieval_query_preprocess == "foreground_dark"
     assert settings.warmup_on_startup is False

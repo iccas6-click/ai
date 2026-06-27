@@ -19,6 +19,7 @@ class Settings:
     candidate_min_score: float = 70.0
     candidate_ambiguity_margin: float = 3.0
     recognizer: str = "retrieval"
+    allow_gemini_recognizer: bool = False
     gemini_model: str = "gemini-3.5-flash"
     gemini_api_key: str | None = None
     aihub_weights: Path | None = None
@@ -92,6 +93,10 @@ class Settings:
                 os.getenv("PILL_CANDIDATE_AMBIGUITY_MARGIN", "3")
             ),
             recognizer=os.getenv("PILL_RECOGNIZER", "retrieval").strip().lower(),
+            allow_gemini_recognizer=parse_bool(
+                os.getenv("PILL_ENABLE_EXPERIMENTAL_GEMINI"),
+                default=False,
+            ),
             gemini_model=os.getenv("PILL_GEMINI_MODEL", "gemini-3.5-flash"),
             gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
             aihub_weights=weights if weights.exists() else None,
