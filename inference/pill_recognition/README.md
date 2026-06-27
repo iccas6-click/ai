@@ -248,6 +248,15 @@ python -m pill_recognition.evaluate_real_dataset \
 
 이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`입니다.
 
+결과 JSON에는 `analysis` 섹션도 포함됩니다. 이 섹션은 다음 케이스를 따로 모아 실제 개선 우선순위를 정하는 데 씁니다.
+
+- `count_mismatch`: 사진별 실제 알약 수와 탐지 수가 다른 경우
+- `detector_misses`: 실제 알약이 탐지되지 않은 경우
+- `false_positives`: 알약이 아닌 영역 또는 중복 bbox가 탐지된 경우
+- `recognition_top3_misses`: bbox는 맞았지만 정답 K-ID가 Top-3에 없는 경우
+- `status_review`: `no_candidate`, `low_confidence`, `ambiguous`로 사용자 재확인이 필요한 detection
+- `warning_images`: 흐림, 과노출, 저해상도 등 촬영 품질 경고가 있는 사진
+
 Gemini는 비교 실험용으로만 유지합니다.
 
 ```bash

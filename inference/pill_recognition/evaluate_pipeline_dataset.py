@@ -75,9 +75,14 @@ def main() -> None:
             print(f"evaluated {index}/{len(image_paths)} images", flush=True)
 
     summary = summarize(rows, args.iou_threshold, settings.top_k)
+    analysis = build_error_report(rows, top_k=settings.top_k)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps({"summary": summary, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"summary": summary, "analysis": analysis, "rows": rows},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     print(json.dumps({"summary": summary}, ensure_ascii=False, indent=2), flush=True)
@@ -126,9 +131,14 @@ def evaluate_result(
                 "top1": predicted_ids[:1] == [truth.class_name],
                 "top3": truth.class_name in predicted_ids[:3],
                 "top5": truth.class_name in predicted_ids[:5],
+                "status": detection.status,
+                "status_reason": detection.status_reason,
                 "top_candidate": candidate_to_row(
                     detection.candidates[0] if detection.candidates else None
                 ),
+                "candidates": [
+                    candidate_to_row(candidate) for candidate in detection.candidates
+                ],
             }
         )
 
@@ -156,6 +166,7 @@ def evaluate_result(
         "detections": [detection_to_row(detection) for detection in result.detections],
         "matches": [match.__dict__ for match in matches],
         "recognition": recognition_rows,
+        "warnings": result.warnings,
     }
 
 
@@ -226,6 +237,107 @@ def summarize(rows: list[dict], iou_threshold: float, top_k: int) -> dict:
         "end_to_end_top1_on_gt": safe_divide(top1, gt_total),
         "end_to_end_top3_on_gt": safe_divide(top3, gt_total),
         "end_to_end_top5_on_gt": safe_divide(top5, gt_total),
+        "warning_images": sum(1 for row in rows if row.get("warnings")),
+        "status_counts": count_detection_statuses(rows),
+    }
+
+
+def build_error_report(rows: list[dict], top_k: int, limit: int = 30) -> dict:
+    count_mismatch = []
+    detector_misses = []
+    false_positives = []
+    recognition_misses = []
+    status_review = []
+    warning_images = []
+
+    for row in rows:
+        image = row["image"]
+        if row["gt_count"] != row["pred_count"]:
+            count_mismatch.append(
+                {
+                    "image": image,
+                    "gt_count": row["gt_count"],
+                    "pred_count": row["pred_count"],
+                    "count_abs_error": row["count_abs_error"],
+                }
+            )
+
+        matched_gt = {match["ground_truth_index"] for match in row["matches"]}
+        matched_pred = {match["prediction_index"] for match in row["matches"]}
+
+        for truth in row["ground_truth"]:
+            if truth["index"] not in matched_gt:
+                detector_misses.append(
+                    {
+                        "image": image,
+                        "expected": truth["class_name"],
+                        "expected_product_name": truth.get("product_name"),
+                        "bbox": truth["bbox"],
+                    }
+                )
+
+        for index, detection in enumerate(row["detections"]):
+            if index not in matched_pred:
+                false_positives.append(
+                    {
+                        "image": image,
+                        "prediction_index": index,
+                        "bbox": detection["bbox"],
+                        "detector_confidence": detection["detector_confidence"],
+                        "status": detection.get("status"),
+                        "top_candidate": detection["candidates"][0]
+                        if detection["candidates"]
+                        else None,
+                    }
+                )
+            if detection.get("status") in {"no_candidate", "low_confidence", "ambiguous"}:
+                status_review.append(
+                    {
+                        "image": image,
+                        "prediction_index": index,
+                        "status": detection.get("status"),
+                        "status_reason": detection.get("status_reason"),
+                        "top_candidate": detection["candidates"][0]
+                        if detection["candidates"]
+                        else None,
+                    }
+                )
+
+        for item in row["recognition"]:
+            if not item.get("top3"):
+                recognition_misses.append(
+                    {
+                        "image": image,
+                        "prediction_index": item["prediction_index"],
+                        "ground_truth_index": item["ground_truth_index"],
+                        "iou": item["iou"],
+                        "expected": item["expected"],
+                        "expected_product_name": item.get("expected_product_name"),
+                        "predicted": item["predicted"][:top_k],
+                        "status": item.get("status"),
+                        "status_reason": item.get("status_reason"),
+                        "top_candidate": item.get("top_candidate"),
+                    }
+                )
+
+        if row.get("warnings"):
+            warning_images.append({"image": image, "warnings": row["warnings"]})
+
+    return {
+        "counts": {
+            "count_mismatch_images": len(count_mismatch),
+            "detector_misses": len(detector_misses),
+            "false_positives": len(false_positives),
+            "recognition_top3_misses": len(recognition_misses),
+            "status_review_detections": len(status_review),
+            "warning_images": len(warning_images),
+        },
+        "count_mismatch": count_mismatch[:limit],
+        "detector_misses": detector_misses[:limit],
+        "false_positives": false_positives[:limit],
+        "recognition_top3_misses": recognition_misses[:limit],
+        "status_review": status_review[:limit],
+        "warning_images": warning_images[:limit],
     }
 
 
@@ -246,6 +358,8 @@ def detection_to_row(detection: PillDetection) -> dict:
         "bbox": detection.bbox,
         "crop_bbox": detection.crop_bbox,
         "detector_confidence": detection.detector_confidence,
+        "status": detection.status,
+        "status_reason": detection.status_reason,
         "candidates": [candidate_to_row(candidate) for candidate in detection.candidates],
     }
 
@@ -264,6 +378,15 @@ def candidate_to_row(candidate) -> dict | None:
 
 def count_true(rows: list[dict], key: str) -> int:
     return sum(1 for row in rows if row.get(key))
+
+
+def count_detection_statuses(rows: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        for detection in row.get("detections", []):
+            status = str(detection.get("status") or "unknown")
+            counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def safe_divide(numerator: int | float, denominator: int | float) -> float:

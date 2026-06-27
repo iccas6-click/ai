@@ -10,6 +10,7 @@ from PIL import Image
 
 from .evaluate_pipeline_dataset import (
     GroundTruthPill,
+    build_error_report,
     compact_row,
     evaluate_result,
     summarize,
@@ -75,9 +76,14 @@ def main() -> None:
             print(f"evaluated {index}/{len(examples)} images", flush=True)
 
     summary = summarize(rows, args.iou_threshold, settings.top_k)
+    analysis = build_error_report(rows, top_k=settings.top_k)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps({"summary": summary, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"summary": summary, "analysis": analysis, "rows": rows},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     print(json.dumps({"summary": summary}, ensure_ascii=False, indent=2), flush=True)
