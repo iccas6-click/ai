@@ -204,6 +204,8 @@ def test_product_refine_combines_image_candidates_with_metadata_search():
     assert response.status_code == 200
     payload = response.json()
     assert payload["count"] == 2
+    assert payload["status"] == "needs_confirmation"
+    assert payload["status_reason"]
     assert payload["results"][0]["pill_id"] == "K-WARFARIN"
     assert payload["results"][0]["image_score"] == 55.0
     assert payload["results"][0]["metadata_score"] == 170.0
@@ -281,6 +283,51 @@ def test_product_refine_boosts_candidate_seen_in_multiple_views():
     assert result["views"] == ["back", "front"]
     assert result["candidate_sources"] == ["aihub_resnet_retrieval"]
     assert result["matched"] == "image candidate x2"
+
+
+def test_product_refine_marks_ambiguous_when_scores_are_close():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-ONE": AIHubProductInfo(pill_id="K-ONE", product_name="후보1"),
+            "K-TWO": AIHubProductInfo(pill_id="K-TWO", product_name="후보2"),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "candidates": [
+                {"pill_id": "K-ONE", "score": 88},
+                {"pill_id": "K-TWO", "score": 86},
+            ],
+            "limit": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ambiguous"
+    assert "Top-2" in response.json()["status_reason"]
+
+
+def test_product_refine_marks_no_candidate_when_all_candidate_ids_are_unknown():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-KNOWN": AIHubProductInfo(pill_id="K-KNOWN", product_name="후보")
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={"candidates": [{"pill_id": "K-UNKNOWN", "score": 99}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+    assert response.json()["status"] == "no_candidate"
 
 
 def test_product_refine_requires_candidates_or_query():

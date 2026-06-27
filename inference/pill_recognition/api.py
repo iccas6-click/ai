@@ -122,6 +122,13 @@ def create_app(
         query = request.to_query()
         results = refine_candidates(product_index, request.candidates, query)
         limit = clamp_limit(request.limit)
+        limited_results = results[:limit]
+        settings = get_settings()
+        status, status_reason = determine_refine_status(
+            limited_results,
+            min_score=settings.candidate_min_score,
+            ambiguity_margin=settings.candidate_ambiguity_margin,
+        )
         return {
             "query": {
                 "imprint": query.imprint,
@@ -130,8 +137,10 @@ def create_app(
                 "text": query.text,
                 "limit": limit,
             },
-            "count": len(results[:limit]),
-            "results": results[:limit],
+            "count": len(limited_results),
+            "status": status,
+            "status_reason": status_reason,
+            "results": limited_results,
         }
 
     return app
@@ -282,6 +291,36 @@ def image_match_reason(evidence_count: int) -> str:
     if evidence_count <= 1:
         return "image candidate"
     return f"image candidate x{evidence_count}"
+
+
+def determine_refine_status(
+    rows: list[dict],
+    min_score: float,
+    ambiguity_margin: float,
+) -> tuple[str, str]:
+    if not rows:
+        return "no_candidate", "No product candidate remained after refinement."
+
+    top_score = float(rows[0].get("score") or 0.0)
+    if top_score < min_score:
+        return (
+            "low_confidence",
+            f"Top refined score {top_score:.2f} is below the review threshold {min_score:.2f}.",
+        )
+
+    if len(rows) >= 2:
+        second_score = float(rows[1].get("score") or 0.0)
+        margin = top_score - second_score
+        if margin < ambiguity_margin:
+            return (
+                "ambiguous",
+                f"Top-2 refined score margin {margin:.2f} is below {ambiguity_margin:.2f}.",
+            )
+
+    return (
+        "needs_confirmation",
+        "Refined candidate is available, but final medication identity must be confirmed by the user.",
+    )
 
 
 def combined_match_reason(*parts: str | None) -> str:
