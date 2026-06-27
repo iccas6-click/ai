@@ -36,6 +36,7 @@ class FakeVisionProvider:
                     VisionProductCandidate(
                         product_name=f"Gemini 와르파린 후보 {index}",
                         ingredient="와르파린나트륨",
+                        caution_points=["출혈 위험 확인"],
                         confidence=0.8,
                     )
                 ],
@@ -64,6 +65,7 @@ class SingleFakeVisionProvider:
                 VisionProductCandidate(
                     product_name="Gemini 와르파린 후보",
                     ingredient="와르파린나트륨",
+                    caution_points=["출혈 위험 확인"],
                     confidence=0.8,
                 )
             ],
@@ -101,6 +103,7 @@ def test_pipeline_uses_vision_clues_to_search_product_db():
     assert result.detections[0].candidates[0].pill_id == "GEMINI"
     assert result.detections[0].candidates[0].source == "gemini"
     assert result.detections[0].candidates[0].ingredient == "와르파린나트륨"
+    assert result.detections[0].candidates[0].caution_points == ["출혈 위험 확인"]
     assert result.pill_count == 2
     assert vision_provider.calls == 1
     assert result.detections[0].status == "needs_confirmation"
@@ -116,5 +119,5 @@ def test_pipeline_keeps_running_when_vision_provider_fails():
 
     result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
 
-    assert result.detections[0].status == "needs_manual_search"
+    assert result.detections[0].status == "no_gemini_candidate"
     assert "provider failed" in result.detections[0].vision.notes

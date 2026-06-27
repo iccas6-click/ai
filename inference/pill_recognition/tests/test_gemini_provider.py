@@ -11,6 +11,7 @@ def test_parse_batch_observations_maps_results_by_pill_index():
                         {
                             "product_name": "두번째정",
                             "ingredient": "성분B",
+                            "caution_points": ["주의B"],
                             "confidence": 0.7,
                         }
                     ],
@@ -22,6 +23,7 @@ def test_parse_batch_observations_maps_results_by_pill_index():
                         {
                             "product_name": "첫번째정",
                             "ingredient": "성분A",
+                            "caution_points": ["주의A"],
                             "confidence": 0.8,
                         }
                     ],
@@ -36,6 +38,7 @@ def test_parse_batch_observations_maps_results_by_pill_index():
 
     assert observations[0].product_candidates[0].product_name == "첫번째정"
     assert observations[1].product_candidates[0].ingredient == "성분B"
+    assert observations[1].product_candidates[0].caution_points == ["주의B"]
 
 
 def test_parse_batch_observations_returns_placeholder_for_missing_index():

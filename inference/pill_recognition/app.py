@@ -91,13 +91,18 @@ def format_candidates(candidates) -> str:
     return "\n".join(
         f"{candidate.rank}. 제품명: {candidate.product_name or '-'} | "
         f"성분: {format_ingredient(candidate.ingredient or '') or '-'} | "
-        f"{candidate.source} | 점수 {candidate.score}"
+        f"주의: {format_cautions(candidate.caution_points)} | "
+        f"점수 {candidate.score}"
         for candidate in candidates
     )
 
 
 def format_ingredient(value: str) -> str:
     return ", ".join(part.strip() for part in str(value).split("|") if part.strip())
+
+
+def format_cautions(values: list[str]) -> str:
+    return "; ".join(value.strip() for value in values if value.strip()) or "-"
 
 
 def joined_colors(row: dict) -> str:
@@ -112,7 +117,7 @@ def build_app() -> gr.Blocks:
         with gr.Tab("인식 데모"):
             gr.Markdown(
                 "# CLICK 알약 인식 v2\n"
-                f"RTMDet로 알약 위치를 찾고, `{settings.vision_provider}` provider가 제품명과 성분 후보를 반환합니다."
+                f"RTMDet로 알약 위치를 찾고, `{settings.vision_provider}` provider가 제품명, 성분, 주의점을 정리합니다."
             )
             with gr.Row():
                 source = gr.Image(type="numpy", label="여러 알약 사진")
@@ -123,7 +128,7 @@ def build_app() -> gr.Blocks:
                     "번호",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "제품명/성분 후보",
+                    "제품명/성분/주의점",
                     "상태",
                 ],
                 interactive=False,

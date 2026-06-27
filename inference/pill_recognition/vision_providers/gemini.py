@@ -15,18 +15,19 @@ You inspect one cropped pill image for a Korean pill recognition app.
 Return only strict JSON.
 
 Primary goal:
-- Identify the most likely medication/product names and active ingredients.
-- The app only needs product_name and ingredient.
+- Identify the most likely medication/product names, active ingredients, and key caution points.
+- The app needs product_name, ingredient, and caution_points.
 - Put the best guesses first in candidates.
 
 Rules:
 - Do not refuse just because this is a medication image.
-- Do not give medical advice, dosage advice, or safety advice.
+- Do not give dosage instructions.
+- caution_points should be short general safety notes, not personalized medical advice.
 - If the pill is unclear, still return your best visual candidates with lower confidence.
 - If no pill is visible, return empty candidates and confidence 0.
 - ingredient should be the active ingredient name in Korean when you can infer it.
 - If you are unsure of ingredient, use null rather than inventing a precise ingredient.
-- Do not return shape, color, imprint, dosage instructions, warnings, or explanations outside notes.
+- If product_name is a guess, keep confidence low and mention uncertainty in notes.
 
 Schema:
 {
@@ -34,6 +35,7 @@ Schema:
     {
       "product_name": string,
       "ingredient": string|null,
+      "caution_points": string[],
       "confidence": number
     }
   ],
@@ -51,18 +53,19 @@ Each following image is labeled as "pill_index N".
 Return one result for every pill_index in the same order.
 
 Primary goal:
-- Identify the most likely medication/product names and active ingredients for each crop.
-- The app only needs product_name and ingredient.
+- Identify the most likely medication/product names, active ingredients, and key caution points for each crop.
+- The app needs product_name, ingredient, and caution_points.
 - Put the best guesses first in candidates.
 
 Rules:
 - Do not refuse just because these are medication images.
-- Do not give medical advice, dosage advice, or safety advice.
+- Do not give dosage instructions.
+- caution_points should be short general safety notes, not personalized medical advice.
 - If a pill is unclear, still return your best visual candidates with lower confidence.
 - If no pill is visible for a pill_index, return empty candidates and confidence 0.
 - ingredient should be the active ingredient name in Korean when you can infer it.
 - If you are unsure of ingredient, use null rather than inventing a precise ingredient.
-- Do not return shape, color, imprint, dosage instructions, warnings, or explanations outside notes.
+- If product_name is a guess, keep confidence low and mention uncertainty in notes.
 
 Schema:
 {
@@ -73,6 +76,7 @@ Schema:
         {
           "product_name": string,
           "ingredient": string|null,
+          "caution_points": string[],
           "confidence": number
         }
       ],
@@ -141,11 +145,11 @@ class GeminiVisionProvider:
 
 
 def encode_crop_jpeg(crop_rgb: np.ndarray) -> bytes:
-        image = Image.fromarray(np.ascontiguousarray(crop_rgb)).convert("RGB")
-        image.thumbnail((512, 512))
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=85)
-        return buffer.getvalue()
+    image = Image.fromarray(np.ascontiguousarray(crop_rgb)).convert("RGB")
+    image.thumbnail((512, 512))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
 
 
 def observation_from_payload(
@@ -240,6 +244,7 @@ def parse_product_candidates(payload: dict) -> list[VisionProductCandidate]:
             VisionProductCandidate(
                 product_name=product_name,
                 ingredient=clean(row.get("ingredient")),
+                caution_points=clean_list(row.get("caution_points")),
                 confidence=to_float(row.get("confidence")),
             )
         )
@@ -259,6 +264,12 @@ def parse_product_candidates(payload: dict) -> list[VisionProductCandidate]:
         seen.add(normalized)
         candidates.append(VisionProductCandidate(product_name=product_name))
     return candidates
+
+
+def clean_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for item in value if (text := clean(item))]
 
 
 def to_float(value) -> float | None:

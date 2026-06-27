@@ -85,18 +85,7 @@ class PillRecognitionPipeline:
             detected_crops,
             observations,
         ):
-            db_candidates = rank_product_candidates(
-                search_products(
-                    self.product_index,
-                    product_query_from_observation(observation, self.settings.top_k),
-                ),
-                self.settings.top_k,
-            )
-            candidates = merge_llm_and_db_candidates(
-                observation,
-                db_candidates,
-                self.settings.top_k,
-            )
+            candidates = llm_product_candidates(observation)[: self.settings.top_k]
             detections.append(
                 PillDetection(
                     pill_id=pill_id,
@@ -196,6 +185,7 @@ def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandida
                 source="aihub_db",
                 product_name=row.get("product_name"),
                 ingredient=row.get("ingredient"),
+                caution_points=[],
                 company=row.get("company"),
                 item_seq=row.get("item_seq"),
                 etc_otc_code=row.get("etc_otc_code"),
@@ -229,6 +219,7 @@ def merge_llm_and_db_candidates(
             source=candidate.source,
             product_name=candidate.product_name,
             ingredient=candidate.ingredient,
+            caution_points=candidate.caution_points,
             company=candidate.company,
             item_seq=candidate.item_seq,
             etc_otc_code=candidate.etc_otc_code,
@@ -267,6 +258,7 @@ def llm_product_candidates(observation: VisionObservation) -> list[ProductCandid
                 source="gemini",
                 product_name=product_name,
                 ingredient=None,
+                caution_points=[],
                 matched="Gemini visual recognition",
             )
         )
@@ -292,6 +284,7 @@ def llm_candidate_from_vision_candidate(
         source="gemini",
         product_name=candidate.product_name,
         ingredient=candidate.ingredient,
+        caution_points=candidate.caution_points,
         matched="Gemini product/ingredient recognition",
     )
 
@@ -309,7 +302,7 @@ def determine_status(
     candidates: list[ProductCandidate],
 ) -> str:
     if not candidates:
-        return "needs_manual_search"
+        return "no_gemini_candidate"
     if candidates[0].score >= 100 and (observation.confidence or 0) >= 0.6:
         return "needs_confirmation"
     return "needs_confirmation"

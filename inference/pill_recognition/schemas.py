@@ -8,6 +8,7 @@ from typing import Any
 class VisionProductCandidate:
     product_name: str
     ingredient: str | None = None
+    caution_points: list[str] = field(default_factory=list)
     confidence: float | None = None
 
 
@@ -33,6 +34,7 @@ class ProductCandidate:
     source: str = "aihub_db"
     product_name: str | None = None
     ingredient: str | None = None
+    caution_points: list[str] = field(default_factory=list)
     company: str | None = None
     item_seq: str | None = None
     etc_otc_code: str | None = None
