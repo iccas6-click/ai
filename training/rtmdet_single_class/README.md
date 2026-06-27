@@ -102,6 +102,15 @@ python -m training.rtmdet_single_class.scripts.train --smoke
 python -m training.rtmdet_single_class.scripts.train
 ```
 
+개선된 AI Hub 합성셋으로 학습할 때는 dataset root와 work dir을 명시합니다.
+
+```bash
+python -m training.rtmdet_single_class.scripts.train \
+  --data-root datasets/processed/rtmdet-aihub-synthetic-realistic-max10 \
+  --work-dir training/runs/rtmdet-aihub-synthetic-realistic-max10 \
+  --num-workers 4
+```
+
 기본 설정은 RTX 4060 Laptop 8GB 기준 `1024x1024`, batch 8, AMP입니다. WSL에서 `CachedMosaic` worker 교착을 피하기 위해 `num_workers=0`을 사용합니다.
 
 ## Baseline 결과

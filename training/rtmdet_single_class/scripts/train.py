@@ -57,6 +57,18 @@ def adapt_checkpoint(source: Path, destination: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train single-class RTMDet")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="Override dataset root containing train_coco.json, val_coco.json, images/.",
+    )
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=None,
+        help="Override MMDetection work_dir for checkpoints and logs.",
+    )
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
@@ -75,6 +87,7 @@ def main() -> None:
     cfg = Config.fromfile(args.config)
     cfg.launcher = "none"
     cfg.resume = args.resume
+    apply_runtime_overrides(cfg, data_root=args.data_root, work_dir=args.work_dir)
     if args.num_workers is not None:
         if args.num_workers < 0:
             parser.error("--num-workers must be zero or greater")
@@ -85,24 +98,61 @@ def main() -> None:
         cfg.load_from = str(adapt_checkpoint(source_checkpoint, ADAPTED_CHECKPOINT))
 
     if args.smoke:
-        cfg.work_dir = str(PROJECT_ROOT / "training" / "runs" / "smoke")
-        cfg.train_cfg.max_epochs = 1
-        cfg.train_dataloader.batch_size = 1
-        if args.num_workers is None:
-            cfg.train_dataloader.num_workers = 0
-            cfg.train_dataloader.persistent_workers = False
-        cfg.train_dataloader.dataset.indices = 8
-        cfg.train_dataloader.dataset.pipeline = cfg.train_pipeline_stage2
-        cfg.val_dataloader.batch_size = 1
-        if args.num_workers is None:
-            cfg.val_dataloader.num_workers = 0
-            cfg.val_dataloader.persistent_workers = False
-        cfg.val_dataloader.dataset.indices = 4
-        cfg.test_dataloader = cfg.val_dataloader
-        cfg.default_hooks.logger.interval = 1
-        cfg.default_hooks.checkpoint.interval = 1
+        apply_smoke_overrides(
+            cfg,
+            default_work_dir=PROJECT_ROOT / "training" / "runs" / "smoke",
+            keep_work_dir=args.work_dir is not None,
+            keep_num_workers=args.num_workers is not None,
+        )
 
     Runner.from_cfg(cfg).train()
+
+
+def apply_runtime_overrides(
+    cfg,
+    data_root: Path | None = None,
+    work_dir: Path | None = None,
+) -> None:
+    if data_root is not None:
+        root = normalized_data_root(data_root)
+        cfg.data_root = root
+        cfg.train_dataloader.dataset.data_root = root
+        cfg.val_dataloader.dataset.data_root = root
+        cfg.test_dataloader.dataset.data_root = root
+        cfg.val_evaluator.ann_file = root + "val_coco.json"
+        cfg.test_evaluator.ann_file = root + "val_coco.json"
+    if work_dir is not None:
+        cfg.work_dir = str(work_dir)
+
+
+def normalized_data_root(path: Path) -> str:
+    text = str(path)
+    return text if text.endswith("/") else text + "/"
+
+
+def apply_smoke_overrides(
+    cfg,
+    default_work_dir: Path,
+    keep_work_dir: bool = False,
+    keep_num_workers: bool = False,
+) -> None:
+    if not keep_work_dir:
+        cfg.work_dir = str(default_work_dir)
+    cfg.train_cfg.max_epochs = 1
+    cfg.train_dataloader.batch_size = 1
+    if not keep_num_workers:
+        cfg.train_dataloader.num_workers = 0
+        cfg.train_dataloader.persistent_workers = False
+    cfg.train_dataloader.dataset.indices = 8
+    cfg.train_dataloader.dataset.pipeline = cfg.train_pipeline_stage2
+    cfg.val_dataloader.batch_size = 1
+    if not keep_num_workers:
+        cfg.val_dataloader.num_workers = 0
+        cfg.val_dataloader.persistent_workers = False
+    cfg.val_dataloader.dataset.indices = 4
+    cfg.test_dataloader = cfg.val_dataloader
+    cfg.default_hooks.logger.interval = 1
+    cfg.default_hooks.checkpoint.interval = 1
 
 
 if __name__ == "__main__":
