@@ -75,6 +75,7 @@ def test_summarize_reports_end_to_end_rates():
             "recognition_top1": 1,
             "recognition_top3": 2,
             "recognition_top5": 2,
+            "timings_ms": {"total": 120.0},
         },
         {
             "gt_count": 2,
@@ -88,6 +89,7 @@ def test_summarize_reports_end_to_end_rates():
             "recognition_top1": 0,
             "recognition_top3": 1,
             "recognition_top5": 1,
+            "timings_ms": {"total": 200.0},
         },
     ]
 
@@ -97,6 +99,8 @@ def test_summarize_reports_end_to_end_rates():
     assert summary["recognition_top3_on_matched"] == 1.0
     assert summary["end_to_end_top3_on_gt"] == 0.75
     assert summary["status_counts"] == {}
+    assert summary["mean_total_ms"] == 160.0
+    assert summary["p95_total_ms"] == 196.0
 
 
 def test_build_error_report_groups_actionable_failures():

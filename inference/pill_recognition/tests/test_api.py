@@ -118,6 +118,7 @@ def test_recognize_accepts_uploaded_image():
     assert payload["detections"][0]["status"] == "needs_confirmation"
     assert payload["detections"][0]["status_reason"] == "review required"
     assert payload["detections"][0]["candidates"][0]["pill_id"] == "K-000001"
+    assert payload["timings_ms"] == {}
 
 
 def test_recognize_crop_accepts_uploaded_single_pill_crop():

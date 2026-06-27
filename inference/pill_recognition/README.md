@@ -47,7 +47,7 @@ curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg"
 ```
 
-응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다.
+응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 `quality`, `detector`, `recognition`, `postprocess`, `total` 단계별 latency가 포함됩니다.
 
 선택한 알약 crop 단독 인식 API:
 
@@ -69,6 +69,8 @@ curl -X POST http://127.0.0.1:8001/crops/recognize-batch \
 이 endpoint는 여러 crop을 한 번의 batch로 AIHub retrieval에 넣습니다. 앞/뒷면 crop이나 여러 선택 알약을 재확인할 때 HTTP 왕복과 모델 호출 부담을 줄일 수 있습니다. 기본 최대 crop 수는 `PILL_MAX_BATCH_CROPS=12`이고, 이미지 1장 기본 제한은 `PILL_MAX_UPLOAD_BYTES=10485760`, `PILL_MAX_IMAGE_PIXELS=12000000`입니다.
 
 crop batch 응답의 `warnings`는 `crop 1`, `crop 2`처럼 crop 번호를 포함합니다. 프론트는 해당 crop만 다시 찍도록 안내할 수 있습니다.
+
+crop batch의 `timings_ms`는 `preprocess`, `recognition`, `postprocess`, `total`을 반환합니다. 여러 crop은 한 번의 retrieval batch로 처리되므로 앱에서는 crop을 따로 여러 번 호출하지 말고 batch endpoint를 우선 사용합니다.
 
 각인/색/모양/텍스트 보정 검색 API:
 
@@ -246,7 +248,7 @@ python -m pill_recognition.evaluate_real_dataset \
   --output outputs/evaluation/real-smartphone.json
 ```
 
-이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`입니다.
+이 결과의 핵심 지표는 `detector_f1`, `recognition_top3_on_matched`, `end_to_end_top3_on_gt`, `mean_total_ms`, `p95_total_ms`입니다.
 
 결과 JSON에는 `analysis` 섹션도 포함됩니다. 이 섹션은 다음 케이스를 따로 모아 실제 개선 우선순위를 정하는 데 씁니다.
 

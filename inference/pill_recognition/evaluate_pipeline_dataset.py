@@ -167,6 +167,7 @@ def evaluate_result(
         "matches": [match.__dict__ for match in matches],
         "recognition": recognition_rows,
         "warnings": result.warnings,
+        "timings_ms": result.timings_ms,
     }
 
 
@@ -214,6 +215,11 @@ def summarize(rows: list[dict], iou_threshold: float, top_k: int) -> dict:
     mean_ious = [
         row["mean_matched_iou"] for row in rows if row["mean_matched_iou"] is not None
     ]
+    total_timings = [
+        float(row["timings_ms"]["total"])
+        for row in rows
+        if row.get("timings_ms") and "total" in row["timings_ms"]
+    ]
     return {
         "images": image_count,
         "gt_total": gt_total,
@@ -239,6 +245,8 @@ def summarize(rows: list[dict], iou_threshold: float, top_k: int) -> dict:
         "end_to_end_top5_on_gt": safe_divide(top5, gt_total),
         "warning_images": sum(1 for row in rows if row.get("warnings")),
         "status_counts": count_detection_statuses(rows),
+        "mean_total_ms": round(mean(total_timings), 3) if total_timings else None,
+        "p95_total_ms": percentile(total_timings, 95) if total_timings else None,
     }
 
 
@@ -397,6 +405,20 @@ def f1_score(true_positive: int, false_positive: int, false_negative: int) -> fl
     precision = safe_divide(true_positive, true_positive + false_positive)
     recall = safe_divide(true_positive, true_positive + false_negative)
     return safe_divide(2 * precision * recall, precision + recall)
+
+
+def percentile(values: list[float], percent: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return round(ordered[0], 3)
+    position = (len(ordered) - 1) * percent / 100.0
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    value = ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+    return round(value, 3)
 
 
 if __name__ == "__main__":

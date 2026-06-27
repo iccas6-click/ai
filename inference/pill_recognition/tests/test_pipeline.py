@@ -148,6 +148,14 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
     assert result.detections[0].vision.shape == "원형"
     assert result.detections[0].status == "needs_confirmation"
     assert result.detections[0].status_reason
+    assert set(result.timings_ms) == {
+        "quality",
+        "detector",
+        "recognition",
+        "postprocess",
+        "total",
+    }
+    assert result.timings_ms["total"] >= 0
 
 
 def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result():
@@ -170,6 +178,12 @@ def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result()
     assert result.detections[0].candidates[0].pill_id == "K-000001"
     assert result.detections[0].vision.color == "하양"
     assert retriever.calls == 1
+    assert set(result.timings_ms) == {
+        "preprocess",
+        "recognition",
+        "postprocess",
+        "total",
+    }
 
 
 def test_pipeline_recognize_crops_batch_uses_single_retriever_call():
@@ -198,6 +212,7 @@ def test_pipeline_recognize_crops_batch_uses_single_retriever_call():
         "K-000002",
     ]
     assert retriever.calls == 1
+    assert result.timings_ms["recognition"] >= 0
 
 
 def test_pipeline_returns_capture_quality_warnings_for_bad_input():

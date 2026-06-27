@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 import cv2
 import numpy as np
 
@@ -58,11 +60,15 @@ class PillRecognitionPipeline:
         return AIHubResNetRetriever.from_settings(self.settings)
 
     def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
+        total_start = perf_counter()
         image_rgb = ensure_rgb_uint8(image_rgb)
         height, width = image_rgb.shape[:2]
+        quality_start = perf_counter()
         warnings = assess_image_quality(image_rgb, context="image")
+        quality_ms = elapsed_ms(quality_start)
         detected_crops = []
         detections = []
+        detector_start = perf_counter()
         detector = self._get_detector()
 
         for pill_id, (bbox, detector_candidates) in enumerate(
@@ -89,10 +95,14 @@ class PillRecognitionPipeline:
                     else 0.0,
                 )
             )
+        detector_ms = elapsed_ms(detector_start)
 
         crops = [crop for _, _, _, crop, _ in detected_crops]
+        recognition_start = perf_counter()
         recognition_batches, vision_observations = self._recognize_crops(crops)
+        recognition_ms = elapsed_ms(recognition_start)
 
+        postprocess_start = perf_counter()
         for (
             pill_id,
             bbox,
@@ -126,6 +136,7 @@ class PillRecognitionPipeline:
             warnings.append("AI Hub product metadata is unavailable.")
         if not detections:
             warnings.append("No pill was detected. Retake the photo with separated pills.")
+        postprocess_ms = elapsed_ms(postprocess_start)
 
         return RecognitionResult(
             image_width=width,
@@ -134,6 +145,13 @@ class PillRecognitionPipeline:
             model_version=f"rtmdet-single-class+{self._recognizer_version()}",
             detections=detections,
             warnings=warnings,
+            timings_ms={
+                "quality": quality_ms,
+                "detector": detector_ms,
+                "recognition": recognition_ms,
+                "postprocess": postprocess_ms,
+                "total": elapsed_ms(total_start),
+            },
         )
 
     def recognize_crop(self, crop_rgb: np.ndarray) -> RecognitionResult:
@@ -142,11 +160,17 @@ class PillRecognitionPipeline:
         return result
 
     def recognize_crops_batch(self, crops_rgb: list[np.ndarray]) -> RecognitionResult:
+        total_start = perf_counter()
+        preprocess_start = perf_counter()
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
         warnings = []
         for index, crop in enumerate(crops, start=1):
             warnings.extend(assess_image_quality(crop, context=f"crop {index}"))
+        preprocess_ms = elapsed_ms(preprocess_start)
+        recognition_start = perf_counter()
         recognition_batches, vision_observations = self._recognize_crops(crops)
+        recognition_ms = elapsed_ms(recognition_start)
+        postprocess_start = perf_counter()
         detections = []
         max_width = 0
         max_height = 0
@@ -185,6 +209,12 @@ class PillRecognitionPipeline:
             model_version=f"crop-batch+{self._recognizer_version()}",
             detections=detections,
             warnings=warnings if detections else ["No crop was provided."],
+            timings_ms={
+                "preprocess": preprocess_ms,
+                "recognition": recognition_ms,
+                "postprocess": elapsed_ms(postprocess_start),
+                "total": elapsed_ms(total_start),
+            },
         )
 
     def _recognize_crops(
@@ -498,3 +528,7 @@ def ensure_rgb_uint8(image: np.ndarray) -> np.ndarray:
     elif array.shape[2] == 4:
         array = cv2.cvtColor(array, cv2.COLOR_RGBA2RGB)
     return np.clip(array, 0, 255).astype(np.uint8)
+
+
+def elapsed_ms(start: float) -> float:
+    return round((perf_counter() - start) * 1000.0, 3)
