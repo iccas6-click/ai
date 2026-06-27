@@ -1,4 +1,4 @@
-from pill_recognition.evaluate_dataset import (
+from pill_recognition_legacy.evaluate_dataset import (
     EvaluationTarget,
     all_present,
     parse_list,

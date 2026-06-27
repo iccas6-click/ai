@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from pill_recognition.assets import download_model_assets
-from pill_recognition import settings as settings_module
-from pill_recognition.settings import Settings
+from pill_recognition_legacy.assets import download_model_assets
+from pill_recognition_legacy import settings as settings_module
+from pill_recognition_legacy.settings import Settings
 
 
 def test_download_model_assets_prefers_local_detector(tmp_path):

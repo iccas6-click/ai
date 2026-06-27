@@ -3,109 +3,90 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from .aihub_classifier import AIHubPillClassifier
-from .assets import download_model_assets
-from .classifier import EfficientNetPillClassifier
-from .detector import RTMDetPillDetector
-from .schemas import PillDetection, RecognitionResult
+from .product_db import ProductSearchQuery, load_product_index, search_products
+from .schemas import PillDetection, ProductCandidate, RecognitionResult, VisionObservation
 from .settings import Settings
+from .vision_providers import create_vision_provider
 
 
 class PillRecognitionPipeline:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        detector=None,
+        vision_provider=None,
+        product_index: dict | None = None,
+    ) -> None:
         self.settings = settings or Settings.from_env()
-        assets = download_model_assets(self.settings)
-        self.detector = RTMDetPillDetector(
+        self.detector = detector or self._load_detector()
+        self.vision_provider = vision_provider or create_vision_provider(self.settings)
+        self.product_index = (
+            product_index
+            if product_index is not None
+            else load_product_index(self.settings.aihub_mapping)
+        )
+
+    def _load_detector(self):
+        from pill_recognition_legacy.assets import download_model_assets
+        from pill_recognition_legacy.detector import RTMDetPillDetector
+        from pill_recognition_legacy.settings import Settings as LegacySettings
+
+        legacy_settings = LegacySettings.from_env()
+        assets = download_model_assets(legacy_settings)
+        return RTMDetPillDetector(
             assets.checkpoint,
             assets.class_names,
-            self.settings,
-        )
-        self.aihub_classifier = self._load_optional_aihub_classifier()
-        self.classifier = self._load_optional_classifier()
-
-    def _load_optional_aihub_classifier(self) -> AIHubPillClassifier | None:
-        if not self.settings.aihub_weights or not self.settings.aihub_mapping:
-            return None
-        return AIHubPillClassifier(
-            self.settings.aihub_weights,
-            self.settings.aihub_mapping,
-            self.settings.device,
-            self.settings.aihub_rotation_tta,
-        )
-
-    def _load_optional_classifier(self) -> EfficientNetPillClassifier | None:
-        if not self.settings.cnn_weights or not self.settings.cnn_mapping:
-            return None
-        return EfficientNetPillClassifier(
-            self.settings.cnn_weights,
-            self.settings.cnn_mapping,
-            self.settings.device,
+            legacy_settings,
         )
 
     def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
         image_rgb = ensure_rgb_uint8(image_rgb)
         height, width = image_rgb.shape[:2]
-        detected_crops = []
+        detections = []
 
-        for pill_id, (bbox, rtmdet_candidates) in enumerate(
+        for pill_id, (bbox, detector_candidates) in enumerate(
             self.detector.predict(image_rgb),
             start=1,
         ):
-            x1, y1, x2, y2 = clamp_bbox(bbox, width, height)
-            crop_box = expand_bbox(
-                (x1, y1, x2, y2),
+            bbox = clamp_bbox(bbox, width, height)
+            crop_bbox = expand_bbox(
+                bbox,
                 width,
                 height,
                 self.settings.crop_padding_ratio,
             )
-            crop_x1, crop_y1, crop_x2, crop_y2 = crop_box
-            crop = image_rgb[crop_y1:crop_y2, crop_x1:crop_x2]
-            detected_crops.append(
-                (pill_id, (x1, y1, x2, y2), rtmdet_candidates, crop)
+            x1, y1, x2, y2 = crop_bbox
+            crop = image_rgb[y1:y2, x1:x2]
+            observation = (
+                self.vision_provider.inspect_crop(crop)
+                if crop.size
+                else VisionObservation(notes="empty crop")
             )
-
-        valid_crops = [crop for _, _, _, crop in detected_crops if crop.size]
-        aihub_predictions = (
-            self.aihub_classifier.predict_batch(valid_crops, self.settings.top_k)
-            if self.aihub_classifier is not None
-            else [[] for _ in valid_crops]
-        )
-
-        detections = []
-        prediction_index = 0
-        for pill_id, bbox, rtmdet_candidates, crop in detected_crops:
-            aihub_candidates = []
-            if crop.size:
-                aihub_candidates = aihub_predictions[prediction_index]
-                prediction_index += 1
-            cnn_candidates = (
-                self.classifier.predict(crop, self.settings.top_k)
-                if self.classifier is not None and crop.size
-                else []
+            candidates = rank_product_candidates(
+                search_products(
+                    self.product_index,
+                    product_query_from_observation(observation, self.settings.top_k),
+                ),
+                self.settings.top_k,
             )
-            status = determine_status(
-                rtmdet_candidates,
-                aihub_candidates,
-                cnn_candidates,
+            detector_confidence = (
+                float(detector_candidates[0].confidence) if detector_candidates else 0.0
             )
             detections.append(
                 PillDetection(
                     pill_id=pill_id,
                     bbox=bbox,
-                    status=status,
-                    rtmdet_candidates=rtmdet_candidates,
-                    aihub_candidates=aihub_candidates,
-                    cnn_candidates=cnn_candidates,
+                    crop_bbox=crop_bbox,
+                    detector_confidence=round(detector_confidence, 4),
+                    vision=observation,
+                    candidates=candidates,
+                    status=determine_status(observation, candidates),
                 )
             )
 
         warnings = []
-        if self.aihub_classifier is None:
-            warnings.append(
-                "AI Hub weights are not configured; 1,000-class candidates are unavailable."
-            )
-        if self.classifier is None:
-            warnings.append("GitHub EfficientNet verifier is not configured.")
+        if not self.product_index:
+            warnings.append("AI Hub product metadata is unavailable.")
         if not detections:
             warnings.append("No pill was detected. Retake the photo with separated pills.")
 
@@ -113,35 +94,66 @@ class PillRecognitionPipeline:
             image_width=width,
             image_height=height,
             pill_count=len(detections),
-            model_version=self._model_version(),
+            model_version=f"rtmdet-single-class+{self.vision_provider.name}+aihub-db",
             detections=detections,
             warnings=warnings,
         )
 
-    def _model_version(self) -> str:
-        if self.settings.detector_checkpoint is not None:
-            versions = ["rtmdet-single-class"]
-        else:
-            versions = [f"{self.settings.model_repo_id}@{self.settings.model_revision[:8]}"]
-        if self.aihub_classifier is not None:
-            versions.append(self.aihub_classifier.model_version)
-        return "+".join(versions)
+
+def product_query_from_observation(
+    observation: VisionObservation,
+    limit: int,
+) -> ProductSearchQuery:
+    imprints = [
+        value
+        for value in (observation.imprint_front, observation.imprint_back)
+        if value
+    ]
+    text_parts = []
+    if observation.text:
+        text_parts.append(observation.text)
+    text_parts.extend(observation.possible_product_names)
+    return ProductSearchQuery(
+        imprint=" ".join(imprints),
+        shape=observation.shape or "",
+        color=observation.color or "",
+        text=" ".join(text_parts),
+        limit=limit,
+    )
 
 
-def determine_status(rtmdet_candidates, aihub_candidates, cnn_candidates) -> str:
-    if not rtmdet_candidates:
-        return "retake_required"
-    if aihub_candidates:
+def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandidate]:
+    candidates = []
+    for rank, row in enumerate(rows[:limit], start=1):
+        candidates.append(
+            ProductCandidate(
+                rank=rank,
+                pill_id=row["pill_id"],
+                score=int(row.get("score", 0)),
+                product_name=row.get("product_name"),
+                ingredient=row.get("ingredient"),
+                company=row.get("company"),
+                item_seq=row.get("item_seq"),
+                etc_otc_code=row.get("etc_otc_code"),
+                print_front=row.get("print_front"),
+                print_back=row.get("print_back"),
+                drug_shape=row.get("drug_shape"),
+                color_class1=row.get("color_class1"),
+                color_class2=row.get("color_class2"),
+                matched=row.get("matched"),
+            )
+        )
+    return candidates
+
+
+def determine_status(
+    observation: VisionObservation,
+    candidates: list[ProductCandidate],
+) -> str:
+    if not candidates:
+        return "needs_manual_search"
+    if candidates[0].score >= 100 and (observation.confidence or 0) >= 0.6:
         return "needs_confirmation"
-    if not cnn_candidates:
-        return "needs_confirmation"
-    same_top1 = rtmdet_candidates[0].class_name == cnn_candidates[0].class_name
-    if (
-        same_top1
-        and rtmdet_candidates[0].confidence >= 0.5
-        and cnn_candidates[0].confidence >= 0.85
-    ):
-        return "identified"
     return "needs_confirmation"
 
 
@@ -164,10 +176,10 @@ def expand_bbox(
 def clamp_bbox(bbox, width: int, height: int) -> tuple[int, int, int, int]:
     x1, y1, x2, y2 = bbox
     return (
-        max(0, min(x1, width - 1)),
-        max(0, min(y1, height - 1)),
-        max(1, min(x2, width)),
-        max(1, min(y2, height)),
+        max(0, min(int(x1), width - 1)),
+        max(0, min(int(y1), height - 1)),
+        max(1, min(int(x2), width)),
+        max(1, min(int(y2), height)),
     )
 
 

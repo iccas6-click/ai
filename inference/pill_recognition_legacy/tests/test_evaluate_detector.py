@@ -1,4 +1,4 @@
-from pill_recognition.evaluate_detector import (
+from pill_recognition_legacy.evaluate_detector import (
     build_row,
     match_detections,
     summarize,

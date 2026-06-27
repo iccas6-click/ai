@@ -1,5 +1,5 @@
-from pill_recognition.aihub_classifier import AIHubProductInfo
-from pill_recognition.product_search import (
+from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
+from pill_recognition_legacy.product_search import (
     ProductSearchQuery,
     imprint_variants,
     search_products,

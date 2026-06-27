@@ -1,6 +1,6 @@
 import numpy as np
 
-from pill_recognition.postprocess import bbox_iou, group_predictions
+from pill_recognition_legacy.postprocess import bbox_iou, group_predictions
 
 
 def test_bbox_iou_for_overlapping_boxes():

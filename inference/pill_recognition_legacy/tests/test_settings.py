@@ -1,4 +1,4 @@
-from pill_recognition.settings import parse_bool
+from pill_recognition_legacy.settings import parse_bool
 
 
 def test_parse_bool_defaults_when_missing():

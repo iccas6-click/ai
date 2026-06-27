@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from pill_recognition.aihub_classifier import (
+from pill_recognition_legacy.aihub_classifier import (
     load_aihub_class_names,
     load_aihub_product_master,
     rotate_crop,
