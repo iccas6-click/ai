@@ -127,6 +127,21 @@ python -m pill_recognition.benchmark_api_latency \
 
 출력의 `elapsed_ms.p50/p95`는 클라이언트에서 체감하는 HTTP 왕복 시간이고, `api_total_ms.p50/p95`는 서버 내부 처리 시간입니다. `recognition_ms`가 대부분을 차지하면 retrieval batch 최적화 대상이고, `pipeline_get`이 크면 warmup 또는 프로세스 재사용 문제입니다.
 
+서버 RTX 3080 smoke benchmark 기준, crop batch recognition은 복약목록 scope를 넣어도 latency가 거의 변하지 않습니다.
+
+| Mode | Crops | elapsed p50 | API p50 | recognition p50 |
+|---|---:|---:|---:|---:|
+| unscoped | 1 | 42.43ms | 41.39ms | 41.03ms |
+| scoped 3 IDs | 1 | 43.48ms | 42.48ms | 42.17ms |
+| unscoped | 3 | 49.89ms | 48.54ms | 47.68ms |
+| scoped 3 IDs | 3 | 50.60ms | 49.27ms | 48.43ms |
+| unscoped | 6 | 64.69ms | 62.66ms | 61.17ms |
+| scoped 3 IDs | 6 | 65.00ms | 63.01ms | 61.32ms |
+| unscoped | 12 | 117.53ms | 114.16ms | 111.11ms |
+| scoped 3 IDs | 12 | 115.52ms | 112.23ms | 109.63ms |
+
+측정 파일은 서버의 `inference/outputs/evaluation/api-latency-unscoped-latest.json`, `inference/outputs/evaluation/api-latency-scoped-latest.json`에 저장했습니다.
+
 각인/색/모양/텍스트 보정 검색 API:
 
 ```bash
