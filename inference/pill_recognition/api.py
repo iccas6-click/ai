@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
+import re
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
@@ -82,12 +84,19 @@ def create_app(
     async def recognize(
         file: UploadFile = File(...),
         allowed_pill_ids: list[str] | None = Form(None),
+        allowed_item_seqs: list[str] | None = Form(None),
+        allowed_product_names: list[str] | None = Form(None),
     ):
         request_start = perf_counter()
         decode_start = perf_counter()
         image_rgb = await read_upload_image(file)
         decode_ms = elapsed_ms(decode_start)
-        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
+        pill_scope, input_scope_resolution = resolve_allowed_scope_from_form(
+            product_index_factory,
+            allowed_pill_ids=allowed_pill_ids,
+            allowed_item_seqs=allowed_item_seqs,
+            allowed_product_names=allowed_product_names,
+        )
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
@@ -100,18 +109,26 @@ def create_app(
             pipeline_get_ms=pipeline_get_ms,
             pipeline_call_ms=elapsed_ms(pipeline_call_start),
         )
+        attach_input_scope_resolution(result, input_scope_resolution)
         return result.to_dict()
 
     @app.post("/crops/recognize")
     async def recognize_crop(
         file: UploadFile = File(...),
         allowed_pill_ids: list[str] | None = Form(None),
+        allowed_item_seqs: list[str] | None = Form(None),
+        allowed_product_names: list[str] | None = Form(None),
     ):
         request_start = perf_counter()
         decode_start = perf_counter()
         crop_rgb = await read_upload_image(file)
         decode_ms = elapsed_ms(decode_start)
-        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
+        pill_scope, input_scope_resolution = resolve_allowed_scope_from_form(
+            product_index_factory,
+            allowed_pill_ids=allowed_pill_ids,
+            allowed_item_seqs=allowed_item_seqs,
+            allowed_product_names=allowed_product_names,
+        )
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
@@ -124,12 +141,15 @@ def create_app(
             pipeline_get_ms=pipeline_get_ms,
             pipeline_call_ms=elapsed_ms(pipeline_call_start),
         )
+        attach_input_scope_resolution(result, input_scope_resolution)
         return result.to_dict()
 
     @app.post("/crops/recognize-batch")
     async def recognize_crops_batch(
         files: list[UploadFile] = File(...),
         allowed_pill_ids: list[str] | None = Form(None),
+        allowed_item_seqs: list[str] | None = Form(None),
+        allowed_product_names: list[str] | None = Form(None),
     ):
         request_start = perf_counter()
         settings = get_settings()
@@ -137,7 +157,12 @@ def create_app(
         decode_start = perf_counter()
         crops_rgb = [await read_upload_image(file) for file in files]
         decode_ms = elapsed_ms(decode_start)
-        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
+        pill_scope, input_scope_resolution = resolve_allowed_scope_from_form(
+            product_index_factory,
+            allowed_pill_ids=allowed_pill_ids,
+            allowed_item_seqs=allowed_item_seqs,
+            allowed_product_names=allowed_product_names,
+        )
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
@@ -153,6 +178,7 @@ def create_app(
             pipeline_get_ms=pipeline_get_ms,
             pipeline_call_ms=elapsed_ms(pipeline_call_start),
         )
+        attach_input_scope_resolution(result, input_scope_resolution)
         return result.to_dict()
 
     @app.get("/products/search")
@@ -405,6 +431,70 @@ def resolve_scope_request(product_index: dict, request: ProductScopeResolveReque
 
 def normalize_nonempty_values(values: list[str]) -> list[str]:
     return [str(value).strip() for value in values if str(value).strip()]
+
+
+def resolve_allowed_scope_from_form(
+    product_index_factory: Callable[[], dict],
+    allowed_pill_ids: list[str] | str | None,
+    allowed_item_seqs: list[str] | str | None,
+    allowed_product_names: list[str] | str | None,
+) -> tuple[set[str], dict | None]:
+    pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
+    item_seqs = parse_scope_form_values(allowed_item_seqs, split_whitespace=True)
+    product_names = parse_scope_form_values(allowed_product_names, split_whitespace=False)
+    if not item_seqs and not product_names:
+        return pill_scope, None
+
+    product_index = product_index_factory()
+    if not product_index:
+        raise HTTPException(
+            status_code=503,
+            detail="AI Hub product metadata is unavailable.",
+        )
+    resolution = resolve_scope_request(
+        product_index,
+        ProductScopeResolveRequest(
+            pill_ids=sorted(pill_scope),
+            item_seqs=item_seqs,
+            product_names=product_names,
+        ),
+    )
+    return set(resolution["allowed_pill_ids"]), {
+        "input_item_seq_count": len(item_seqs),
+        "input_product_name_count": len(product_names),
+        "resolved_count": resolution["count"],
+        "unresolved": resolution["unresolved"],
+    }
+
+
+def parse_scope_form_values(
+    values: list[str] | str | None,
+    split_whitespace: bool,
+) -> list[str]:
+    if isinstance(values, str):
+        values = [values]
+    parsed_values = []
+    for value in values or []:
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("["):
+            try:
+                decoded = json.loads(raw)
+            except json.JSONDecodeError:
+                decoded = None
+            if isinstance(decoded, list):
+                parsed_values.extend(str(item).strip() for item in decoded)
+                continue
+        pattern = r"[\s,]+" if split_whitespace else r"[\n,]+"
+        parsed_values.extend(part.strip() for part in re.split(pattern, raw))
+    return normalize_nonempty_values(parsed_values)
+
+
+def attach_input_scope_resolution(result, input_scope_resolution: dict | None) -> None:
+    if input_scope_resolution is None:
+        return
+    result.candidate_scope["input_scope_resolution"] = input_scope_resolution
 
 
 def initial_warmup_state() -> dict:

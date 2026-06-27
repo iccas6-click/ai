@@ -88,6 +88,17 @@ curl -X POST http://127.0.0.1:8001/recognize \
   -F 'allowed_pill_ids=["K-001732","K-012914","K-000845"]'
 ```
 
+또는 인식 요청에 복약목록 식별자를 바로 넣을 수 있습니다. 이 경우 API가 내부에서 `allowed_pill_ids`로 변환한 뒤 retrieval search scope를 적용합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8001/recognize \
+  -F "file=@sample.jpg" \
+  -F 'allowed_item_seqs=["198601052","199303108"]' \
+  -F 'allowed_product_names=["대화와르파린나트륨정","타이레놀정500mg"]'
+```
+
+`allowed_item_seqs`와 `allowed_product_names`는 `/recognize`, `/crops/recognize`, `/crops/recognize-batch`에서 모두 사용할 수 있습니다. 응답의 `candidate_scope.input_scope_resolution`에는 입력된 item_seq/제품명 수, resolve 성공 개수, unresolved 목록이 포함됩니다.
+
 응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 파이프라인 내부 `quality`, `detector`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total` latency가 포함됩니다. Warmup이 정상 완료되면 일반 요청의 `pipeline_get`은 매우 작아야 합니다.
 
 `allowed_pill_ids`를 보낸 경우 응답의 `candidate_scope`에 scope 적용 결과가 포함됩니다. `retrieval_id_match_count`가 0이면 입력한 K-ID가 retrieval index에 없다는 뜻이므로, 모델 판단보다 사용자 복약목록 K-ID 매핑을 먼저 확인해야 합니다.

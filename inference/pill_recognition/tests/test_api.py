@@ -187,6 +187,58 @@ def test_recognize_passes_allowed_pill_scope_to_pipeline():
     assert pipeline.last_allowed_pill_ids == {"K-000001", "K-000002", "K-000003"}
 
 
+def test_recognize_resolves_item_seq_and_product_name_scope_to_pipeline():
+    pipeline = FakePipeline()
+    app = create_app(
+        lambda: pipeline,
+        product_index_factory=lambda: {
+            "K-WARFARIN": AIHubProductInfo(
+                pill_id="K-WARFARIN",
+                product_name="대화와르파린나트륨정",
+                item_seq="198601052",
+            ),
+            "K-TYLENOL": AIHubProductInfo(
+                pill_id="K-TYLENOL",
+                product_name="타이레놀정500mg",
+                item_seq="199303108",
+            ),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/recognize",
+        files={"file": ("pill.jpg", image_bytes(16, 12), "image/jpeg")},
+        data={
+            "allowed_item_seqs": "[\"198601052\"]",
+            "allowed_product_names": "타이레놀정500mg",
+        },
+    )
+
+    assert response.status_code == 200
+    assert pipeline.last_allowed_pill_ids == {"K-WARFARIN", "K-TYLENOL"}
+    payload = response.json()
+    assert payload["candidate_scope"]["input_scope_resolution"] == {
+        "input_item_seq_count": 1,
+        "input_product_name_count": 1,
+        "resolved_count": 2,
+        "unresolved": [],
+    }
+
+
+def test_recognize_reports_missing_metadata_when_named_scope_is_requested():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.post(
+        "/recognize",
+        files={"file": ("pill.jpg", image_bytes(16, 12), "image/jpeg")},
+        data={"allowed_item_seqs": "198601052"},
+    )
+
+    assert response.status_code == 503
+
+
 def test_parse_allowed_pill_ids_accepts_json_commas_and_whitespace():
     assert parse_allowed_pill_ids(
         ["K-000001,K-000002", "K-000003 K-000004", "[\"K-000005\"]"]

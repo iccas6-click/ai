@@ -61,8 +61,8 @@ flowchart TD
 ## Recommended App Sequence
 
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
-2. 복약목록이 있으면 앱/백엔드는 `POST /products/scope/resolve`로 K-ID, 품목기준코드, 제품명을 `allowed_pill_ids`로 변환합니다.
-3. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. `allowed_pill_ids`가 있으면 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
+2. 복약목록이 있으면 앱/백엔드는 `POST /products/scope/resolve`로 K-ID, 품목기준코드, 제품명을 `allowed_pill_ids`로 변환합니다. 간단한 앱 구현에서는 이 단계를 생략하고 `/recognize`에 `allowed_item_seqs` 또는 `allowed_product_names`를 바로 넣어도 됩니다.
+3. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. `allowed_pill_ids`, `allowed_item_seqs`, `allowed_product_names`가 있으면 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
 4. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
 5. 응답의 `candidate_scope.retrieval_id_match_count`가 0이면 복약목록 K-ID 매핑 오류로 보고 직접 검색 또는 복약목록 수정 UI로 보냅니다.
 6. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
