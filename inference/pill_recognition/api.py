@@ -141,6 +141,7 @@ class ProductCandidateInput(BaseModel):
     pill_id: str
     score: float = 0.0
     source: str | None = None
+    view: str | None = None
 
 
 class ProductRefineRequest(BaseModel):
@@ -178,24 +179,27 @@ def refine_candidates(
 ) -> list[dict]:
     merged: dict[str, dict] = {}
 
-    for candidate in candidates:
-        pill_id = candidate.pill_id.strip()
+    for pill_id, evidence in aggregate_candidate_evidence(candidates).items():
         product = product_index.get(pill_id)
         if product is None:
             continue
         metadata_score, reasons = score_product(product, query)
-        image_score = max(0.0, min(float(candidate.score), 100.0))
+        image_score = aggregate_image_score(evidence["scores"])
         row = asdict(product)
         row.update(
             {
                 "score": round(image_score + metadata_score, 2),
                 "image_score": round(image_score, 2),
+                "image_score_max": round(max(evidence["scores"]), 2),
+                "image_evidence_count": len(evidence["scores"]),
+                "views": sorted(evidence["views"]),
+                "candidate_sources": sorted(evidence["sources"]),
                 "metadata_score": metadata_score,
                 "matched": combined_match_reason(
-                    "image candidate",
+                    image_match_reason(len(evidence["scores"])),
                     ", ".join(reasons),
                 ),
-                "source": candidate.source or "recognition_candidate",
+                "source": "recognition_candidates",
             }
         )
         merged[pill_id] = row
@@ -210,6 +214,10 @@ def refine_candidates(
                 {
                     "score": metadata_score,
                     "image_score": 0.0,
+                    "image_score_max": 0.0,
+                    "image_evidence_count": 0,
+                    "views": [],
+                    "candidate_sources": [],
                     "metadata_score": metadata_score,
                     "source": "aihub_metadata_search",
                 }
@@ -219,7 +227,10 @@ def refine_candidates(
         metadata_score = float(row.get("score", 0))
         current["score"] = round(float(current["image_score"]) + metadata_score, 2)
         current["metadata_score"] = metadata_score
-        current["matched"] = combined_match_reason("image candidate", row.get("matched"))
+        current["matched"] = combined_match_reason(
+            image_match_reason(int(current.get("image_evidence_count") or 1)),
+            row.get("matched"),
+        )
 
     results = list(merged.values())
     results.sort(
@@ -232,6 +243,45 @@ def refine_candidates(
     for rank, row in enumerate(results, start=1):
         row["rank"] = rank
     return results
+
+
+def aggregate_candidate_evidence(
+    candidates: list[ProductCandidateInput],
+) -> dict[str, dict]:
+    evidence_by_id: dict[str, dict] = {}
+    for candidate in candidates:
+        pill_id = candidate.pill_id.strip()
+        if not pill_id:
+            continue
+        evidence = evidence_by_id.setdefault(
+            pill_id,
+            {"scores": [], "sources": set(), "views": set()},
+        )
+        evidence["scores"].append(clamp_score(candidate.score))
+        source = candidate.source.strip() if candidate.source else ""
+        view = candidate.view.strip() if candidate.view else ""
+        if source:
+            evidence["sources"].add(source)
+        if view:
+            evidence["views"].add(view)
+    return evidence_by_id
+
+
+def aggregate_image_score(scores: list[float]) -> float:
+    if not scores:
+        return 0.0
+    duplicate_bonus = min(max(len(scores) - 1, 0) * 5.0, 10.0)
+    return min(max(scores) + duplicate_bonus, 100.0)
+
+
+def clamp_score(score: float) -> float:
+    return max(0.0, min(float(score), 100.0))
+
+
+def image_match_reason(evidence_count: int) -> str:
+    if evidence_count <= 1:
+        return "image candidate"
+    return f"image candidate x{evidence_count}"
 
 
 def combined_match_reason(*parts: str | None) -> str:

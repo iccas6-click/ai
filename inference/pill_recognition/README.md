@@ -71,8 +71,9 @@ curl -X POST http://127.0.0.1:8001/products/refine \
   -H "Content-Type: application/json" \
   -d '{
     "candidates": [
-      {"pill_id": "K-001732", "score": 55.0, "source": "aihub_resnet_retrieval"},
-      {"pill_id": "K-012914", "score": 92.0, "source": "aihub_resnet_retrieval"}
+      {"pill_id": "K-001732", "score": 55.0, "source": "aihub_resnet_retrieval", "view": "front"},
+      {"pill_id": "K-001732", "score": 76.0, "source": "aihub_resnet_retrieval", "view": "back"},
+      {"pill_id": "K-012914", "score": 92.0, "source": "aihub_resnet_retrieval", "view": "front"}
     ],
     "imprint": "W2",
     "shape": "원형",
@@ -81,7 +82,7 @@ curl -X POST http://127.0.0.1:8001/products/refine \
   }'
 ```
 
-이 endpoint는 이미지 recognition 후보의 `score`와 AIHub 제품 DB의 각인/색/모양/텍스트 점수를 합산해 다시 정렬합니다. 이미지가 헷갈린 경우에도 각인 exact match가 있으면 후보 순위가 앞으로 올라옵니다.
+이 endpoint는 이미지 recognition 후보의 `score`와 AIHub 제품 DB의 각인/색/모양/텍스트 점수를 합산해 다시 정렬합니다. 같은 `pill_id`가 앞/뒷면 crop에서 반복 등장하면 `image_evidence_count`, `views`를 기록하고 작은 multi-view 보너스를 부여합니다. 이미지가 헷갈린 경우에도 각인 exact match가 있으면 후보 순위가 앞으로 올라옵니다.
 
 평가:
 

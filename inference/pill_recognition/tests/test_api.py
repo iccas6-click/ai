@@ -235,6 +235,54 @@ def test_product_refine_can_rank_existing_candidates_without_query():
     assert response.json()["results"][0]["pill_id"] == "K-HIGH"
 
 
+def test_product_refine_boosts_candidate_seen_in_multiple_views():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-SINGLE": AIHubProductInfo(pill_id="K-SINGLE", product_name="한면후보"),
+            "K-MULTI": AIHubProductInfo(pill_id="K-MULTI", product_name="양면후보"),
+        },
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/products/refine",
+        json={
+            "candidates": [
+                {
+                    "pill_id": "K-SINGLE",
+                    "score": 91,
+                    "source": "aihub_resnet_retrieval",
+                    "view": "front",
+                },
+                {
+                    "pill_id": "K-MULTI",
+                    "score": 88,
+                    "source": "aihub_resnet_retrieval",
+                    "view": "front",
+                },
+                {
+                    "pill_id": "K-MULTI",
+                    "score": 74,
+                    "source": "aihub_resnet_retrieval",
+                    "view": "back",
+                },
+            ],
+            "limit": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["pill_id"] == "K-MULTI"
+    assert result["image_score"] == 93.0
+    assert result["image_score_max"] == 88.0
+    assert result["image_evidence_count"] == 2
+    assert result["views"] == ["back", "front"]
+    assert result["candidate_sources"] == ["aihub_resnet_retrieval"]
+    assert result["matched"] == "image candidate x2"
+
+
 def test_product_refine_requires_candidates_or_query():
     app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
     client = TestClient(app)
