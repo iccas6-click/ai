@@ -136,25 +136,34 @@ class PillRecognitionPipeline:
         )
 
     def recognize_crop(self, crop_rgb: np.ndarray) -> RecognitionResult:
-        crop_rgb = ensure_rgb_uint8(crop_rgb)
-        height, width = crop_rgb.shape[:2]
-        recognition_batches, vision_observations = self._recognize_crops([crop_rgb])
-        candidates = recognition_batches[0] if recognition_batches else []
-        vision = vision_observations[0] if vision_observations else VisionObservation()
-        status, status_reason = determine_status(
-            candidates,
-            min_score=self.settings.candidate_min_score,
-            ambiguity_margin=self.settings.candidate_ambiguity_margin,
-        )
+        result = self.recognize_crops_batch([crop_rgb])
+        result.model_version = f"single-crop+{self._recognizer_version()}"
+        return result
 
-        return RecognitionResult(
-            image_width=width,
-            image_height=height,
-            pill_count=1,
-            model_version=f"single-crop+{self._recognizer_version()}",
-            detections=[
+    def recognize_crops_batch(self, crops_rgb: list[np.ndarray]) -> RecognitionResult:
+        crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
+        recognition_batches, vision_observations = self._recognize_crops(crops)
+        detections = []
+        max_width = 0
+        max_height = 0
+
+        for pill_id, crop, candidates, vision in zip(
+            range(1, len(crops) + 1),
+            crops,
+            recognition_batches,
+            vision_observations,
+        ):
+            height, width = crop.shape[:2]
+            max_width = max(max_width, width)
+            max_height = max(max_height, height)
+            status, status_reason = determine_status(
+                candidates,
+                min_score=self.settings.candidate_min_score,
+                ambiguity_margin=self.settings.candidate_ambiguity_margin,
+            )
+            detections.append(
                 PillDetection(
-                    pill_id=1,
+                    pill_id=pill_id,
                     bbox=(0, 0, width, height),
                     crop_bbox=(0, 0, width, height),
                     detector_confidence=1.0,
@@ -163,7 +172,15 @@ class PillRecognitionPipeline:
                     status=status,
                     status_reason=status_reason,
                 )
-            ],
+            )
+
+        return RecognitionResult(
+            image_width=max_width,
+            image_height=max_height,
+            pill_count=len(detections),
+            model_version=f"crop-batch+{self._recognizer_version()}",
+            detections=detections,
+            warnings=[] if detections else ["No crop was provided."],
         )
 
     def _recognize_crops(

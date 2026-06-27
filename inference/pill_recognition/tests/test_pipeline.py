@@ -172,6 +172,34 @@ def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result()
     assert retriever.calls == 1
 
 
+def test_pipeline_recognize_crops_batch_uses_single_retriever_call():
+    retriever = FakeRetriever()
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=ExplodingDetector(),
+        retriever=retriever,
+        product_index={},
+    )
+
+    result = pipeline.recognize_crops_batch(
+        [
+            np.zeros((32, 48, 3), dtype=np.uint8) + 255,
+            np.zeros((40, 28, 3), dtype=np.uint8) + 255,
+        ]
+    )
+
+    assert result.model_version == "crop-batch+fake-retriever"
+    assert result.image_width == 48
+    assert result.image_height == 40
+    assert result.pill_count == 2
+    assert [detection.pill_id for detection in result.detections] == [1, 2]
+    assert [detection.candidates[0].pill_id for detection in result.detections] == [
+        "K-000001",
+        "K-000002",
+    ]
+    assert retriever.calls == 1
+
+
 def test_pipeline_preserves_vision_observation_for_provider_recognizer():
     pipeline = PillRecognitionPipeline(
         settings=Settings(top_k=3, recognizer="gemini"),

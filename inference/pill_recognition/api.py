@@ -67,6 +67,14 @@ def create_app(
         result = pipeline_factory().recognize_crop(crop_rgb)
         return result.to_dict()
 
+    @app.post("/crops/recognize-batch")
+    async def recognize_crops_batch(files: list[UploadFile] = File(...)):
+        if not files:
+            raise HTTPException(status_code=400, detail="At least one crop image is required.")
+        crops_rgb = [await read_upload_image(file) for file in files]
+        result = pipeline_factory().recognize_crops_batch(crops_rgb)
+        return result.to_dict()
+
     @app.get("/products/search")
     def search_product_db(
         imprint: str = "",

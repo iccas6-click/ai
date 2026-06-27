@@ -23,6 +23,19 @@ class FakePipeline:
         assert image_rgb.shape == (12, 16, 3)
         return fake_result("fake-crop", "needs_confirmation")
 
+    def recognize_crops_batch(self, images_rgb):
+        assert [image.shape for image in images_rgb] == [(12, 16, 3), (10, 8, 3)]
+        return RecognitionResult(
+            image_width=16,
+            image_height=12,
+            pill_count=2,
+            model_version="fake-crop-batch",
+            detections=[
+                fake_detection(1, "K-000001"),
+                fake_detection(2, "K-000002"),
+            ],
+        )
+
 
 def fake_result(model_version: str, status: str) -> RecognitionResult:
     return RecognitionResult(
@@ -50,6 +63,27 @@ def fake_result(model_version: str, status: str) -> RecognitionResult:
                 status_reason="review required",
             )
         ],
+    )
+
+
+def fake_detection(pill_id: int, candidate_id: str) -> PillDetection:
+    return PillDetection(
+        pill_id=pill_id,
+        bbox=(1, 2, 10, 11),
+        crop_bbox=(0, 1, 11, 12),
+        detector_confidence=0.92,
+        vision=VisionObservation(),
+        candidates=[
+            ProductCandidate(
+                rank=1,
+                pill_id=candidate_id,
+                score=88.0,
+                product_name="테스트정",
+                ingredient="성분A",
+            )
+        ],
+        status="needs_confirmation",
+        status_reason="review required",
     )
 
 
@@ -96,6 +130,28 @@ def test_recognize_crop_accepts_uploaded_single_pill_crop():
     assert payload["pill_count"] == 1
     assert payload["detections"][0]["bbox"] == [1, 2, 10, 11]
     assert payload["detections"][0]["candidates"][0]["product_name"] == "테스트정"
+
+
+def test_recognize_crop_batch_accepts_multiple_uploaded_crops():
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.post(
+        "/crops/recognize-batch",
+        files=[
+            ("files", ("front.jpg", image_bytes(16, 12), "image/jpeg")),
+            ("files", ("back.jpg", image_bytes(8, 10), "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_version"] == "fake-crop-batch"
+    assert payload["pill_count"] == 2
+    assert [row["candidates"][0]["pill_id"] for row in payload["detections"]] == [
+        "K-000001",
+        "K-000002",
+    ]
 
 
 def test_recognize_rejects_non_image_file():
