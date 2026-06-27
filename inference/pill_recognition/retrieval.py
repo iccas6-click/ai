@@ -96,11 +96,17 @@ class AIHubResNetRetriever:
     ) -> list[list[ProductCandidate]]:
         if not crops_rgb:
             return []
-        query_embeddings = self.embed_crops(crops_rgb)
-        scores = query_embeddings @ self.embeddings.T
         selected_index_positions = self._selected_index_positions(allowed_pill_ids)
         if allowed_pill_ids and not selected_index_positions:
             return [[] for _ in crops_rgb]
+        query_embeddings = self.embed_crops(crops_rgb)
+        scores = query_embeddings @ self.embeddings.T
+        variant_count = infer_variant_count(
+            query_embeddings.shape[0],
+            crop_count=len(crops_rgb),
+        )
+        if variant_count > 1:
+            scores = scores.reshape(len(crops_rgb), variant_count, -1).max(dim=1).values
         if selected_index_positions:
             selected_tensor = torch.tensor(
                 selected_index_positions,
@@ -170,10 +176,12 @@ class AIHubResNetRetriever:
 
     def embed_crops(self, crops_rgb: list[np.ndarray]) -> torch.Tensor:
         rotations = (0, 1, 2, 3) if self.rotation_tta else (0,)
-        preprocessed_crops = [
-            preprocess_query_crop(crop, self.query_preprocess)
-            for crop in crops_rgb
-        ]
+        preprocess_modes = query_preprocess_modes(self.query_preprocess)
+        preprocessed_crops = []
+        for crop in crops_rgb:
+            preprocessed_crops.extend(
+                preprocess_query_crop(crop, mode) for mode in preprocess_modes
+            )
         embedding_sum = None
         for rotation in rotations:
             batch = torch.stack(
@@ -189,6 +197,48 @@ class AIHubResNetRetriever:
                 embeddings = torch.nn.functional.normalize(embeddings, dim=1)
             embedding_sum = embeddings if embedding_sum is None else embedding_sum + embeddings
         return torch.nn.functional.normalize(embedding_sum / len(rotations), dim=1)
+
+
+def query_preprocess_modes(mode: str) -> list[str]:
+    normalized = str(mode or "none").strip().lower()
+    if normalized in {"", "none", "off", "false", "0"}:
+        return ["none"]
+    aliases = {
+        "multi": ["none", "foreground"],
+        "multi_foreground": ["none", "foreground"],
+        "multi_foreground_dark": ["none", "foreground", "foreground_dark"],
+    }
+    if normalized in aliases:
+        return aliases[normalized]
+    if "+" in normalized:
+        modes = [part.strip() for part in normalized.split("+") if part.strip()]
+        if modes:
+            return dedupe_preserving_order(modes)
+    return [normalized]
+
+
+def dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen = set()
+    output = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
+
+
+def infer_variant_count(embedding_count: int, crop_count: int) -> int:
+    if crop_count <= 0:
+        return 1
+    if embedding_count == crop_count:
+        return 1
+    if embedding_count % crop_count != 0:
+        raise ValueError(
+            "Query embedding count must be equal to crop count or a fixed "
+            "multiple of crop count."
+        )
+    return max(1, embedding_count // crop_count)
 
 
 def product_candidate_from_aihub_product(

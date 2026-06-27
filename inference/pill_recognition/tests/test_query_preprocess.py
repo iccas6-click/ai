@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from pill_recognition.retrieval import infer_variant_count, query_preprocess_modes
 from pill_recognition.query_preprocess import (
     AIHUB_DARK_BACKGROUND,
     preprocess_query_crop,
@@ -35,3 +36,16 @@ def test_preprocess_query_crop_rejects_unknown_mode():
 
     with pytest.raises(ValueError):
         preprocess_query_crop(image, "wat")
+
+
+def test_query_preprocess_modes_expands_multi_aliases():
+    assert query_preprocess_modes("none") == ["none"]
+    assert query_preprocess_modes("multi_foreground") == ["none", "foreground"]
+    assert query_preprocess_modes("none+foreground+none") == ["none", "foreground"]
+
+
+def test_infer_variant_count_requires_fixed_variant_count():
+    assert infer_variant_count(2, crop_count=2) == 1
+    assert infer_variant_count(4, crop_count=2) == 2
+    with pytest.raises(ValueError):
+        infer_variant_count(5, crop_count=2)

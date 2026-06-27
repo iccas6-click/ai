@@ -120,6 +120,59 @@ def test_predict_batch_can_search_only_allowed_pill_ids(monkeypatch, tmp_path):
     assert scoped[0][0].pill_id == "K-ALLOWED"
 
 
+def test_multi_query_preprocess_uses_best_variant_score(monkeypatch, tmp_path):
+    index_path = tmp_path / "index.pt"
+    torch.save(
+        {
+            "version": 1,
+            "index_mode": "prototype",
+            "pill_ids": ["K-WRONG", "K-RIGHT"],
+            "embeddings": torch.tensor(
+                [
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                ]
+            ),
+        },
+        index_path,
+    )
+
+    monkeypatch.setattr(
+        "pill_recognition.retrieval.load_aihub_class_names",
+        lambda path: {0: "K-WRONG", 1: "K-RIGHT"},
+    )
+    monkeypatch.setattr(
+        "pill_recognition.retrieval.load_aihub_product_master",
+        lambda crop_root, pill_ids=None: {},
+    )
+    monkeypatch.setattr(
+        "pill_recognition.retrieval.load_aihub_resnet_encoder",
+        lambda weights_path: torch.nn.Identity(),
+    )
+
+    weights_path = tmp_path / "weights.pt"
+    mapping_path = tmp_path / "pill_label_path_sharp_score.json"
+    weights_path.touch()
+    mapping_path.write_text("{}", encoding="utf-8")
+    retriever = AIHubResNetRetriever(
+        weights_path,
+        mapping_path,
+        index_path,
+        device="cpu",
+        rotation_tta=False,
+        query_preprocess="multi_foreground",
+    )
+    monkeypatch.setattr(
+        retriever,
+        "embed_crops",
+        lambda crops: torch.tensor([[0.8, 0.2], [0.0, 1.0]]),
+    )
+
+    predictions = retriever.predict_batch([object()], top_k=1)
+
+    assert predictions[0][0].pill_id == "K-RIGHT"
+
+
 def test_predict_batch_returns_empty_when_allowed_scope_has_no_index_match(
     monkeypatch,
     tmp_path,
