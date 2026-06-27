@@ -47,6 +47,14 @@ curl -X POST http://127.0.0.1:8001/recognize \
 
 응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다.
 
+각인/색/모양/텍스트 보정 검색 API:
+
+```bash
+curl "http://127.0.0.1:8001/products/search?imprint=W2&shape=원형&color=하양&limit=5"
+```
+
+이 endpoint는 AIHub 제품 DB를 직접 검색합니다. 앱에서는 인식 후보가 애매할 때 사용자가 읽은 각인, 앞/뒤면 촬영 결과, 또는 OCR 결과를 넣어 후보를 다시 좁히는 데 사용합니다.
+
 평가:
 
 ```bash

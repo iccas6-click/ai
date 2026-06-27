@@ -11,6 +11,7 @@ from pill_recognition.schemas import (
     RecognitionResult,
     VisionObservation,
 )
+from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 
 
 class FakePipeline:
@@ -82,6 +83,59 @@ def test_recognize_rejects_non_image_file():
     )
 
     assert response.status_code == 400
+
+
+def test_product_search_returns_aihub_metadata_matches():
+    app = create_app(
+        lambda: FakePipeline(),
+        product_index_factory=lambda: {
+            "K-000001": AIHubProductInfo(
+                pill_id="K-000001",
+                product_name="대화와르파린나트륨정",
+                ingredient="와르파린나트륨",
+                print_front="W분할선2",
+                drug_shape="원형",
+                color_class1="하양",
+            )
+        },
+    )
+    client = TestClient(app)
+
+    response = client.get(
+        "/products/search",
+        params={
+            "imprint": "W2",
+            "shape": "원형",
+            "color": "하양",
+            "limit": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["query"]["limit"] == 5
+    assert payload["results"][0]["pill_id"] == "K-000001"
+    assert payload["results"][0]["ingredient"] == "와르파린나트륨"
+    assert payload["results"][0]["matched"] == "각인 exact, 모양, 색"
+
+
+def test_product_search_requires_at_least_one_query_field():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.get("/products/search")
+
+    assert response.status_code == 400
+
+
+def test_product_search_reports_missing_product_metadata():
+    app = create_app(lambda: FakePipeline(), product_index_factory=lambda: {})
+    client = TestClient(app)
+
+    response = client.get("/products/search", params={"text": "아시클로버"})
+
+    assert response.status_code == 503
 
 
 def image_bytes(width: int, height: int) -> bytes:
