@@ -152,6 +152,23 @@ API detector wrapper 경로로도 같은 validation split을 평가했습니다.
 | recall | 0.9998 |
 | F1 | 0.9994 |
 | mean matched IoU | 0.9958 |
+| false positives | 5 |
+| false negatives | 1 |
+
+기존 default detector와 v2 후보를 같은 synthetic v2 validation split에서 비교한 결과입니다.
+
+| Metric | Default | v2 candidate | Delta |
+|---|---:|---:|---:|
+| count exact accuracy | 0.865 | 0.994 | +0.129 |
+| precision | 0.9901 | 0.9991 | +0.009 |
+| recall | 0.9771 | 0.9998 | +0.0227 |
+| F1 | 0.9836 | 0.9994 | +0.0158 |
+| mean matched IoU | 0.8238 | 0.9958 | +0.172 |
+| false positives | 55 | 5 | -50 |
+| false negatives | 129 | 1 | -128 |
+| paired image wins | - | 996 / 1000 | - |
+
+`compare_detector_evaluations` 기준으로 v2 후보가 996장 개선, default가 4장 우세였습니다. 이 4장은 대부분 v2의 추가 false positive 때문이라, 실제 사진 평가에서도 regression 목록을 반드시 확인합니다.
 
 서버 후보 가중치는 다음 위치에 staging했습니다.
 
@@ -165,6 +182,37 @@ inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
 export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
 export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml
 ```
+
+실제 스마트폰 detector 검증셋이 준비되면 기존 default와 v2 후보를 같은 이미지/라벨로 각각 평가한 뒤 비교합니다.
+
+```bash
+# default detector
+python -m pill_recognition_legacy.evaluate_detector \
+  --images ../datasets/evaluation/real-smartphone-yolo/images \
+  --labels ../datasets/evaluation/real-smartphone-yolo/labels \
+  --output-dir outputs/evaluation/real-detector-default \
+  --save-annotated \
+  --annotated-limit 30
+
+# v2 candidate detector
+PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth \
+PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml \
+python -m pill_recognition_legacy.evaluate_detector \
+  --images ../datasets/evaluation/real-smartphone-yolo/images \
+  --labels ../datasets/evaluation/real-smartphone-yolo/labels \
+  --output-dir outputs/evaluation/real-detector-v2 \
+  --save-annotated \
+  --annotated-limit 30
+
+python -m pill_recognition_legacy.compare_detector_evaluations \
+  --baseline outputs/evaluation/real-detector-default \
+  --candidate outputs/evaluation/real-detector-v2 \
+  --name-baseline default \
+  --name-candidate aihub-synthetic-v2 \
+  --output outputs/evaluation/real-detector-compare.json
+```
+
+승격 기준은 실제 사진에서 `recall`을 떨어뜨리지 않으면서 `false_positive`, `count_mean_abs_error`, 이미지별 regression이 줄어드는 것입니다.
 
 로컬 다중 알약 샘플 5장에서는 각 4개, 총 20개를 모두 검출했습니다. 이 샘플은 학습 데이터와 유사한 합성 도메인이므로 실제 촬영 성능을 뜻하지 않습니다.
 
