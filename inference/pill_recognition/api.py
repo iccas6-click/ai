@@ -182,8 +182,7 @@ def create_app(
             )
         return FileResponse(
             image_path,
-            media_type="image/png",
-            filename=image_path.name,
+            media_type=detect_image_media_type(image_path),
         )
 
     @app.post("/products/refine")
@@ -495,6 +494,21 @@ def find_reference_image(mapping_path, pill_id: str):
         if matches:
             return matches[0]
     return None
+
+
+def detect_image_media_type(path) -> str:
+    try:
+        with Image.open(path) as image:
+            image_format = str(image.format or "").upper()
+    except (OSError, UnidentifiedImageError):
+        return "application/octet-stream"
+    if image_format == "JPEG":
+        return "image/jpeg"
+    if image_format == "PNG":
+        return "image/png"
+    if image_format == "WEBP":
+        return "image/webp"
+    return "application/octet-stream"
 
 
 async def read_upload_image(file: UploadFile) -> np.ndarray:

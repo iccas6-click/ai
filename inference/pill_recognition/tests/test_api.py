@@ -4,7 +4,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from pill_recognition.api import create_app
+from pill_recognition.api import create_app, detect_image_media_type
 from pill_recognition.schemas import (
     PillDetection,
     ProductCandidate,
@@ -338,6 +338,13 @@ def test_product_reference_image_endpoint_rejects_unknown_id(monkeypatch, tmp_pa
     response = client.get("/products/not-a-pill/reference-image")
 
     assert response.status_code == 404
+
+
+def test_detect_image_media_type_uses_file_content_not_suffix(tmp_path):
+    image_path = tmp_path / "looks-like.png"
+    Image.new("RGB", (12, 12), "white").save(image_path, format="JPEG")
+
+    assert detect_image_media_type(image_path) == "image/jpeg"
 
 
 def test_product_search_requires_at_least_one_query_field():
