@@ -17,6 +17,7 @@ from pill_recognition_legacy.aihub_classifier import (
 
 from .schemas import ProductCandidate
 from .settings import Settings
+from .visual_features import CropVisualFeatures, estimate_crop_visual_features
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class AIHubResNetRetriever:
         index_path: Path,
         device: str,
         rotation_tta: bool = True,
+        metadata_rerank: bool = False,
     ) -> None:
         if not weights_path.exists() or not mapping_path.exists():
             raise FileNotFoundError("AI Hub weights or mapping does not exist")
@@ -44,6 +46,7 @@ class AIHubResNetRetriever:
             )
         self.device = torch.device(device)
         self.rotation_tta = rotation_tta
+        self.metadata_rerank = metadata_rerank
         self.class_names = load_aihub_class_names(mapping_path)
         self.product_master = load_aihub_product_master(
             mapping_path.parent,
@@ -76,6 +79,7 @@ class AIHubResNetRetriever:
             settings.aihub_mapping,
             settings.retrieval_index,
             settings.device,
+            metadata_rerank=settings.retrieval_metadata_rerank,
         )
 
     def predict_batch(
@@ -89,15 +93,31 @@ class AIHubResNetRetriever:
         scores = query_embeddings @ self.embeddings.T
         search_k = min(max(top_k * 24, 64), scores.shape[1])
         values, indices = torch.topk(scores, search_k, dim=1)
+        crop_features = (
+            [estimate_crop_visual_features(crop) for crop in crops_rgb]
+            if self.metadata_rerank
+            else [CropVisualFeatures() for _ in crops_rgb]
+        )
         results = []
-        for row_values, row_indices in zip(values.tolist(), indices.tolist()):
+        for row_values, row_indices, features in zip(
+            values.tolist(),
+            indices.tolist(),
+            crop_features,
+        ):
             best_by_pill_id: dict[str, float] = {}
             for score, index in zip(row_values, row_indices):
                 pill_id = self.pill_ids[index]
-                if pill_id not in best_by_pill_id or score > best_by_pill_id[pill_id]:
-                    best_by_pill_id[pill_id] = float(score)
-                if len(best_by_pill_id) >= top_k and self.index_mode == "prototype":
-                    break
+                product = self.product_master.get(pill_id)
+                reranked_score = (
+                    apply_metadata_rerank(float(score), product, features)
+                    if self.metadata_rerank
+                    else float(score)
+                )
+                if (
+                    pill_id not in best_by_pill_id
+                    or reranked_score > best_by_pill_id[pill_id]
+                ):
+                    best_by_pill_id[pill_id] = reranked_score
             ranked = sorted(
                 best_by_pill_id.items(),
                 key=lambda item: item[1],
@@ -112,6 +132,7 @@ class AIHubResNetRetriever:
                         pill_id,
                         score,
                         product,
+                        features if self.metadata_rerank else None,
                     )
                 )
             results.append(row_candidates)
@@ -141,11 +162,20 @@ def product_candidate_from_aihub_product(
     pill_id: str,
     score: float,
     product: AIHubProductInfo | None,
+    features: CropVisualFeatures | None = None,
 ) -> ProductCandidate:
+    matched = "AIHub ResNet embedding similarity"
+    if features and (features.color or features.shape):
+        details = []
+        if features.color:
+            details.append(f"color={features.color}")
+        if features.shape:
+            details.append(f"shape={features.shape}")
+        matched = f"{matched} + metadata rerank ({', '.join(details)})"
     return ProductCandidate(
         rank=rank,
         pill_id=pill_id,
-        score=round(float(score) * 100, 2),
+        score=round(min(float(score), 1.0) * 100, 2),
         source="aihub_resnet_retrieval",
         product_name=product.product_name if product else None,
         ingredient=product.ingredient if product else None,
@@ -157,8 +187,39 @@ def product_candidate_from_aihub_product(
         drug_shape=product.drug_shape if product else None,
         color_class1=product.color_class1 if product else None,
         color_class2=product.color_class2 if product else None,
-        matched="AIHub ResNet embedding similarity",
+        matched=matched,
     )
+
+
+def apply_metadata_rerank(
+    score: float,
+    product: AIHubProductInfo | None,
+    features: CropVisualFeatures,
+) -> float:
+    if product is None:
+        return score
+
+    bonus = 0.0
+    product_colors = {
+        normalize_metadata_text(product.color_class1),
+        normalize_metadata_text(product.color_class2),
+    }
+    if features.color and normalize_metadata_text(features.color) in product_colors:
+        bonus += 0.006
+
+    product_shape = normalize_metadata_text(product.drug_shape)
+    feature_shape = normalize_metadata_text(features.shape)
+    if feature_shape and product_shape:
+        if feature_shape == product_shape:
+            bonus += 0.003
+        elif {feature_shape, product_shape} <= {"타원형", "장방형"}:
+            bonus += 0.0015
+
+    return score + bonus
+
+
+def normalize_metadata_text(value: str | None) -> str:
+    return str(value or "").strip()
 
 
 def load_aihub_resnet_encoder(weights_path: Path) -> torch.nn.Module:

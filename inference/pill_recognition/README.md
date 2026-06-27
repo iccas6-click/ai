@@ -8,6 +8,7 @@ image
 -> crop per pill
 -> AI Hub ResNet152 feature embedding
 -> cosine search against AI Hub 1000-class reference prototypes
+-> optional metadata rerank using estimated color/shape
 -> Top-N product candidates with ingredients
 ```
 
@@ -39,6 +40,12 @@ python -m pill_recognition.evaluate_retrieval \
 ```
 
 `--index-mode reference`는 sampled reference embedding을 모두 저장하는 비교 실험용 옵션입니다. 현재 AIHub held-out crop 기준으로는 prototype 평균 인덱스가 더 안정적입니다.
+
+색상/형상 기반 메타데이터 재랭킹은 실제 스마트폰 사진 평가셋에서 A/B 비교하기 위한 선택 기능입니다. AIHub held-out crop 기준에서는 기본 retrieval이 더 안정적이라 기본값은 off입니다.
+
+```bash
+export PILL_RETRIEVAL_METADATA_RERANK=1
+```
 
 Gemini는 비교 실험용으로만 유지합니다.
 

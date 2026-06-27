@@ -106,6 +106,7 @@ flowchart TD
 | RTMDet-tiny 단일 클래스 | 제품 종류와 무관하게 이미지 내 알약 위치 탐지 및 Bounding Box 생성 |
 | AI Hub ResNet152 retrieval | 잘린 알약 이미지와 AI Hub reference prototype 간 이미지 유사도 검색 |
 | AI Hub 제품 DB | K-ID, 제품명, 성분, 업체, 외형 정보 매핑 |
+| Metadata rerank | 실제 사진 A/B 실험용 색상·형상 후보 재정렬. 기본값 off |
 | AI Hub ResNet152 class01 | legacy baseline의 1,000종 K-ID Top-3 분류 |
 | EfficientNet-B0 | legacy baseline의 118종 후보 비교 |
 | OCR | 의약품 포장과 용기의 제품명·함량 추출 |

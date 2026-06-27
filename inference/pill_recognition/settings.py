@@ -19,6 +19,7 @@ class Settings:
     aihub_weights: Path | None = None
     aihub_mapping: Path | None = None
     retrieval_index: Path = PROJECT_ROOT / "artifacts" / "retrieval" / "aihub_resnet_index.pt"
+    retrieval_metadata_rerank: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -84,4 +85,14 @@ class Settings:
                 if env_retrieval_index
                 else cls.retrieval_index
             ),
+            retrieval_metadata_rerank=parse_bool(
+                os.getenv("PILL_RETRIEVAL_METADATA_RERANK"),
+                default=False,
+            ),
         )
+
+
+def parse_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off", ""}
