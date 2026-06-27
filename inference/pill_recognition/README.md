@@ -45,7 +45,7 @@ curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg"
 ```
 
-응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `candidates`, `status`, `status_reason`을 포함합니다.
+응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다.
 
 평가:
 

@@ -14,6 +14,7 @@ from .schemas import (
 )
 from .settings import Settings
 from .vision_providers import create_vision_provider
+from .visual_features import estimate_crop_visual_features
 
 
 class PillRecognitionPipeline:
@@ -87,11 +88,18 @@ class PillRecognitionPipeline:
             )
 
         crops = [crop for _, _, _, crop, _ in detected_crops]
-        recognition_batches = self._recognize_crops(crops)
+        recognition_batches, vision_observations = self._recognize_crops(crops)
 
-        for (pill_id, bbox, crop_bbox, _, detector_confidence), candidates in zip(
+        for (
+            pill_id,
+            bbox,
+            crop_bbox,
+            _,
+            detector_confidence,
+        ), candidates, vision in zip(
             detected_crops,
             recognition_batches,
+            vision_observations,
         ):
             status, status_reason = determine_status(
                 candidates,
@@ -104,7 +112,7 @@ class PillRecognitionPipeline:
                     bbox=bbox,
                     crop_bbox=crop_bbox,
                     detector_confidence=round(detector_confidence, 4),
-                    vision=VisionObservation(),
+                    vision=vision,
                     candidates=candidates,
                     status=status,
                     status_reason=status_reason,
@@ -126,18 +134,27 @@ class PillRecognitionPipeline:
             warnings=warnings,
         )
 
-    def _recognize_crops(self, crops: list[np.ndarray]) -> list[list[ProductCandidate]]:
+    def _recognize_crops(
+        self,
+        crops: list[np.ndarray],
+    ) -> tuple[list[list[ProductCandidate]], list[VisionObservation]]:
         if self.settings.recognizer == "retrieval":
-            return recognize_crops_with_retriever(
-                self.retriever,
-                crops,
-                self.settings.top_k,
+            return (
+                recognize_crops_with_retriever(
+                    self.retriever,
+                    crops,
+                    self.settings.top_k,
+                ),
+                [local_visual_observation(crop) for crop in crops],
             )
         observations = inspect_crops_safely(self.vision_provider, crops)
-        return [
-            llm_product_candidates(observation)[: self.settings.top_k]
-            for observation in observations
-        ]
+        return (
+            [
+                llm_product_candidates(observation)[: self.settings.top_k]
+                for observation in observations
+            ],
+            observations,
+        )
 
     def _recognizer_version(self) -> str:
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
@@ -164,6 +181,17 @@ def recognize_crops_with_retriever(
     for (index, _), candidates in zip(valid_pairs, predictions):
         results[index] = candidates
     return results
+
+
+def local_visual_observation(crop: np.ndarray) -> VisionObservation:
+    features = estimate_crop_visual_features(crop)
+    confidence = 0.35 if features.color or features.shape else 0.0
+    return VisionObservation(
+        shape=features.shape,
+        color=features.color,
+        confidence=confidence,
+        notes="local crop visual features only; product identity comes from retrieval candidates.",
+    )
 
 
 def product_query_from_observation(

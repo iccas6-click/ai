@@ -1,7 +1,11 @@
 import numpy as np
 
 from pill_recognition.pipeline import PillRecognitionPipeline, determine_status
-from pill_recognition.schemas import ProductCandidate, VisionObservation
+from pill_recognition.schemas import (
+    ProductCandidate,
+    VisionObservation,
+    VisionProductCandidate,
+)
 from pill_recognition.settings import Settings
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 from pill_recognition_legacy.schemas import Candidate
@@ -89,6 +93,27 @@ class FailingVisionProvider:
         raise RuntimeError("boom")
 
 
+class FakeVisionProvider:
+    name = "fake-vision"
+
+    def inspect_crops(self, crops_rgb):
+        return [
+            VisionObservation(
+                shape="장방형",
+                color="노랑",
+                confidence=0.7,
+                product_candidates=[
+                    VisionProductCandidate(
+                        product_name="비전후보정",
+                        ingredient="성분B",
+                        confidence=0.7,
+                    )
+                ],
+            )
+            for _ in crops_rgb
+        ]
+
+
 def test_pipeline_uses_retriever_batch_for_detected_crops():
     retriever = FakeRetriever()
     pipeline = PillRecognitionPipeline(
@@ -114,8 +139,26 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
     assert result.detections[0].candidates[0].ingredient == "와르파린나트륨"
     assert result.pill_count == 2
     assert retriever.calls == 1
+    assert result.detections[0].vision.color == "하양"
+    assert result.detections[0].vision.shape == "원형"
     assert result.detections[0].status == "needs_confirmation"
     assert result.detections[0].status_reason
+
+
+def test_pipeline_preserves_vision_observation_for_provider_recognizer():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3, recognizer="gemini"),
+        detector=SingleFakeDetector(),
+        vision_provider=FakeVisionProvider(),
+        product_index={},
+    )
+
+    result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
+
+    assert result.detections[0].vision.color == "노랑"
+    assert result.detections[0].vision.shape == "장방형"
+    assert result.detections[0].candidates[0].source == "gemini"
+    assert result.detections[0].candidates[0].product_name == "비전후보정"
 
 
 def test_pipeline_marks_no_candidate_when_retriever_returns_empty():
