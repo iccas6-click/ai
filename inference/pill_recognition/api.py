@@ -53,6 +53,7 @@ def create_app(
             "status": "ok",
             "recognizer": settings.recognizer,
             "top_k": settings.top_k,
+            "max_batch_crops": settings.max_batch_crops,
         }
 
     @app.post("/recognize")
@@ -69,8 +70,8 @@ def create_app(
 
     @app.post("/crops/recognize-batch")
     async def recognize_crops_batch(files: list[UploadFile] = File(...)):
-        if not files:
-            raise HTTPException(status_code=400, detail="At least one crop image is required.")
+        settings = get_settings()
+        validate_crop_batch_size(files, settings.max_batch_crops)
         crops_rgb = [await read_upload_image(file) for file in files]
         result = pipeline_factory().recognize_crops_batch(crops_rgb)
         return result.to_dict()
@@ -187,6 +188,16 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def validate_crop_batch_size(files: list[UploadFile], max_batch_crops: int) -> None:
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one crop image is required.")
+    if len(files) > max_batch_crops:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many crop images: got {len(files)}, max {max_batch_crops}.",
+        )
 
 
 def refine_candidates(

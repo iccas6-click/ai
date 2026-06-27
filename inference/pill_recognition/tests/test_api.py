@@ -11,6 +11,7 @@ from pill_recognition.schemas import (
     RecognitionResult,
     VisionObservation,
 )
+from pill_recognition.settings import Settings
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 
 
@@ -96,6 +97,7 @@ def test_health_returns_runtime_policy(monkeypatch):
     assert response.status_code == 200
     assert response.json()["recognizer"] == "retrieval"
     assert response.json()["top_k"] == 3
+    assert response.json()["max_batch_crops"] == 12
 
 
 def test_recognize_accepts_uploaded_image():
@@ -152,6 +154,26 @@ def test_recognize_crop_batch_accepts_multiple_uploaded_crops():
         "K-000001",
         "K-000002",
     ]
+
+
+def test_recognize_crop_batch_rejects_too_many_files(monkeypatch):
+    monkeypatch.setattr(
+        "pill_recognition.api.get_settings",
+        lambda: Settings(max_batch_crops=1),
+    )
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.post(
+        "/crops/recognize-batch",
+        files=[
+            ("files", ("front.jpg", image_bytes(16, 12), "image/jpeg")),
+            ("files", ("back.jpg", image_bytes(8, 10), "image/jpeg")),
+        ],
+    )
+
+    assert response.status_code == 400
+    assert "Too many crop images" in response.json()["detail"]
 
 
 def test_recognize_rejects_non_image_file():

@@ -64,7 +64,7 @@ curl -X POST http://127.0.0.1:8001/crops/recognize-batch \
   -F "files=@back_crop.jpg"
 ```
 
-이 endpoint는 여러 crop을 한 번의 batch로 AIHub retrieval에 넣습니다. 앞/뒷면 crop이나 여러 선택 알약을 재확인할 때 HTTP 왕복과 모델 호출 부담을 줄일 수 있습니다.
+이 endpoint는 여러 crop을 한 번의 batch로 AIHub retrieval에 넣습니다. 앞/뒷면 crop이나 여러 선택 알약을 재확인할 때 HTTP 왕복과 모델 호출 부담을 줄일 수 있습니다. 기본 최대 crop 수는 `PILL_MAX_BATCH_CROPS=12`입니다.
 
 각인/색/모양/텍스트 보정 검색 API:
 

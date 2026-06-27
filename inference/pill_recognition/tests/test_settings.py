@@ -23,12 +23,14 @@ def test_settings_defaults_to_service_top3(monkeypatch, tmp_path):
     settings = Settings.from_env()
 
     assert settings.top_k == 3
+    assert settings.max_batch_crops == 12
     assert settings.candidate_min_score == 70
     assert settings.candidate_ambiguity_margin == 3
 
 
 def test_settings_reads_candidate_policy_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("PILL_TOP_K", "4")
+    monkeypatch.setenv("PILL_MAX_BATCH_CROPS", "8")
     monkeypatch.setenv("PILL_CANDIDATE_MIN_SCORE", "80")
     monkeypatch.setenv("PILL_CANDIDATE_AMBIGUITY_MARGIN", "5")
     monkeypatch.setattr("pill_recognition.settings.PROJECT_ROOT", tmp_path)
@@ -36,5 +38,6 @@ def test_settings_reads_candidate_policy_from_env(monkeypatch, tmp_path):
     settings = Settings.from_env()
 
     assert settings.top_k == 4
+    assert settings.max_batch_crops == 8
     assert settings.candidate_min_score == 80
     assert settings.candidate_ambiguity_margin == 5

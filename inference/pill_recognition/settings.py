@@ -13,6 +13,7 @@ class Settings:
     device: str = "cuda:0"
     crop_padding_ratio: float = 0.12
     top_k: int = 3
+    max_batch_crops: int = 12
     candidate_min_score: float = 70.0
     candidate_ambiguity_margin: float = 3.0
     recognizer: str = "retrieval"
@@ -77,6 +78,7 @@ class Settings:
             device=os.getenv("PILL_DEVICE", "cuda:0"),
             crop_padding_ratio=float(os.getenv("PILL_CROP_PADDING_RATIO", "0.12")),
             top_k=int(os.getenv("PILL_TOP_K", "3")),
+            max_batch_crops=int(os.getenv("PILL_MAX_BATCH_CROPS", "12")),
             candidate_min_score=float(os.getenv("PILL_CANDIDATE_MIN_SCORE", "70")),
             candidate_ambiguity_margin=float(
                 os.getenv("PILL_CANDIDATE_AMBIGUITY_MARGIN", "3")
