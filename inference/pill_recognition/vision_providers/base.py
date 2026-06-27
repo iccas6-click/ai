@@ -11,4 +11,7 @@ class VisionProvider(Protocol):
     name: str
 
     def inspect_crop(self, crop_rgb: np.ndarray) -> VisionObservation:
-        """Extract visible pill clues such as imprint, color, shape, and text."""
+        """Extract product and ingredient candidates from a single pill crop."""
+
+    def inspect_crops(self, crops_rgb: list[np.ndarray]) -> list[VisionObservation]:
+        """Extract product and ingredient candidates from multiple pill crops."""

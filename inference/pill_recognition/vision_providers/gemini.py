@@ -10,7 +10,7 @@ from PIL import Image
 from ..schemas import VisionObservation, VisionProductCandidate
 
 
-PROMPT = """
+SINGLE_CROP_PROMPT = """
 You inspect one cropped pill image for a Korean pill recognition app.
 Return only strict JSON.
 
@@ -43,6 +43,47 @@ Schema:
 """
 
 
+BATCH_PROMPT = """
+You inspect multiple cropped pill images for a Korean pill recognition app.
+Return only strict JSON.
+
+Each following image is labeled as "pill_index N".
+Return one result for every pill_index in the same order.
+
+Primary goal:
+- Identify the most likely medication/product names and active ingredients for each crop.
+- The app only needs product_name and ingredient.
+- Put the best guesses first in candidates.
+
+Rules:
+- Do not refuse just because these are medication images.
+- Do not give medical advice, dosage advice, or safety advice.
+- If a pill is unclear, still return your best visual candidates with lower confidence.
+- If no pill is visible for a pill_index, return empty candidates and confidence 0.
+- ingredient should be the active ingredient name in Korean when you can infer it.
+- If you are unsure of ingredient, use null rather than inventing a precise ingredient.
+- Do not return shape, color, imprint, dosage instructions, warnings, or explanations outside notes.
+
+Schema:
+{
+  "results": [
+    {
+      "pill_index": number,
+      "candidates": [
+        {
+          "product_name": string,
+          "ingredient": string|null,
+          "confidence": number
+        }
+      ],
+      "confidence": number,
+      "notes": string|null
+    }
+  ]
+}
+"""
+
+
 class GeminiVisionProvider:
     name = "gemini"
 
@@ -60,28 +101,102 @@ class GeminiVisionProvider:
         self.model = model
 
     def inspect_crop(self, crop_rgb: np.ndarray) -> VisionObservation:
-        image = Image.fromarray(np.ascontiguousarray(crop_rgb)).convert("RGB")
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=92)
+        return self.inspect_crops([crop_rgb])[0]
+
+    def inspect_crops(self, crops_rgb: list[np.ndarray]) -> list[VisionObservation]:
+        if not crops_rgb:
+            return []
+        if len(crops_rgb) == 1:
+            return [self._inspect_single_crop(crops_rgb[0])]
+
+        contents = [BATCH_PROMPT]
+        for index, crop_rgb in enumerate(crops_rgb, start=1):
+            contents.append(f"pill_index {index}")
+            contents.append(
+                self.types.Part.from_bytes(
+                    data=encode_crop_jpeg(crop_rgb),
+                    mime_type="image/jpeg",
+                )
+            )
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=contents,
+        )
+        payload = parse_json_response(getattr(response, "text", "") or "")
+        return parse_batch_observations(payload, len(crops_rgb), self.name, self.model)
+
+    def _inspect_single_crop(self, crop_rgb: np.ndarray) -> VisionObservation:
         response = self.client.models.generate_content(
             model=self.model,
             contents=[
-                PROMPT,
+                SINGLE_CROP_PROMPT,
                 self.types.Part.from_bytes(
-                    data=buffer.getvalue(),
+                    data=encode_crop_jpeg(crop_rgb),
                     mime_type="image/jpeg",
                 ),
             ],
         )
         payload = parse_json_response(getattr(response, "text", "") or "")
-        product_candidates = parse_product_candidates(payload)
-        return VisionObservation(
-            product_candidates=product_candidates,
-            possible_product_names=[candidate.product_name for candidate in product_candidates],
-            confidence=to_float(payload.get("confidence")),
-            notes=clean(payload.get("notes")),
-            raw={"provider": self.name, "model": self.model, "response": payload},
-        )
+        return observation_from_payload(payload, self.name, self.model)
+
+
+def encode_crop_jpeg(crop_rgb: np.ndarray) -> bytes:
+        image = Image.fromarray(np.ascontiguousarray(crop_rgb)).convert("RGB")
+        image.thumbnail((512, 512))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+
+
+def observation_from_payload(
+    payload: dict,
+    provider_name: str,
+    model: str,
+) -> VisionObservation:
+    product_candidates = parse_product_candidates(payload)
+    return VisionObservation(
+        product_candidates=product_candidates,
+        possible_product_names=[candidate.product_name for candidate in product_candidates],
+        confidence=to_float(payload.get("confidence")),
+        notes=clean(payload.get("notes")),
+        raw={"provider": provider_name, "model": model, "response": payload},
+    )
+
+
+def parse_batch_observations(
+    payload: dict,
+    expected_count: int,
+    provider_name: str,
+    model: str,
+) -> list[VisionObservation]:
+    rows = payload.get("results", [])
+    if not isinstance(rows, list):
+        rows = []
+    by_index = {}
+    for order, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        pill_index = to_int(row.get("pill_index")) or order
+        by_index[pill_index] = row
+    observations = []
+    for pill_index in range(1, expected_count + 1):
+        row = by_index.get(pill_index)
+        if row is None:
+            observations.append(
+                VisionObservation(
+                    confidence=0.0,
+                    notes="Gemini batch response did not include this pill_index.",
+                    raw={
+                        "provider": provider_name,
+                        "model": model,
+                        "response": payload,
+                        "missing_pill_index": pill_index,
+                    },
+                )
+            )
+            continue
+        observations.append(observation_from_payload(row, provider_name, model))
+    return observations
 
 
 def parse_json_response(text: str) -> dict:
@@ -149,5 +264,12 @@ def parse_product_candidates(payload: dict) -> list[VisionProductCandidate]:
 def to_float(value) -> float | None:
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def to_int(value) -> int | None:
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None

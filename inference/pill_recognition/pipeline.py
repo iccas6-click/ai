@@ -48,6 +48,7 @@ class PillRecognitionPipeline:
     def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
         image_rgb = ensure_rgb_uint8(image_rgb)
         height, width = image_rgb.shape[:2]
+        detected_crops = []
         detections = []
 
         for pill_id, (bbox, detector_candidates) in enumerate(
@@ -63,7 +64,27 @@ class PillRecognitionPipeline:
             )
             x1, y1, x2, y2 = crop_bbox
             crop = image_rgb[y1:y2, x1:x2]
-            observation = inspect_crop_safely(self.vision_provider, crop)
+            detected_crops.append(
+                (
+                    pill_id,
+                    bbox,
+                    crop_bbox,
+                    crop,
+                    float(detector_candidates[0].confidence)
+                    if detector_candidates
+                    else 0.0,
+                )
+            )
+
+        observations = inspect_crops_safely(
+            self.vision_provider,
+            [crop for _, _, _, crop, _ in detected_crops],
+        )
+
+        for (pill_id, bbox, crop_bbox, _, detector_confidence), observation in zip(
+            detected_crops,
+            observations,
+        ):
             db_candidates = rank_product_candidates(
                 search_products(
                     self.product_index,
@@ -75,9 +96,6 @@ class PillRecognitionPipeline:
                 observation,
                 db_candidates,
                 self.settings.top_k,
-            )
-            detector_confidence = (
-                float(detector_candidates[0].confidence) if detector_candidates else 0.0
             )
             detections.append(
                 PillDetection(
@@ -127,17 +145,44 @@ def product_query_from_observation(
     )
 
 
-def inspect_crop_safely(vision_provider, crop: np.ndarray) -> VisionObservation:
-    if not crop.size:
-        return VisionObservation(notes="empty crop")
+def inspect_crops_safely(
+    vision_provider,
+    crops: list[np.ndarray],
+) -> list[VisionObservation]:
+    if not crops:
+        return []
+    valid_pairs = [(index, crop) for index, crop in enumerate(crops) if crop.size]
+    valid_crops = [crop for _, crop in valid_pairs]
+    if len(valid_crops) != len(crops):
+        observations = [
+            VisionObservation(notes="empty crop")
+            for _ in crops
+        ]
+        for (index, _), observation in zip(
+            valid_pairs,
+            inspect_crops_safely(vision_provider, valid_crops),
+        ):
+            observations[index] = observation
+        return observations
     try:
-        return vision_provider.inspect_crop(crop)
+        if hasattr(vision_provider, "inspect_crops"):
+            observations = vision_provider.inspect_crops(crops)
+        else:
+            observations = [vision_provider.inspect_crop(crop) for crop in crops]
+        if len(observations) != len(crops):
+            raise ValueError(
+                f"expected {len(crops)} observations, got {len(observations)}"
+            )
+        return observations
     except Exception as error:
-        return VisionObservation(
-            confidence=0.0,
-            notes=f"{vision_provider.name} provider failed: {type(error).__name__}: {error}",
-            raw={"provider": vision_provider.name, "error": str(error)},
-        )
+        return [
+            VisionObservation(
+                confidence=0.0,
+                notes=f"{vision_provider.name} provider failed: {type(error).__name__}: {error}",
+                raw={"provider": vision_provider.name, "error": str(error)},
+            )
+            for _ in crops
+        ]
 
 
 def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandidate]:

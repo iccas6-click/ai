@@ -13,9 +13,12 @@ class LocalVisionProvider:
         return VisionObservation(
             color=color,
             confidence=0.2 if color else 0.0,
-            notes="local provider estimates coarse color only; configure Gemini for imprint/OCR clues.",
+            notes="local provider does not identify product/ingredient; configure Gemini.",
             raw={"provider": self.name},
         )
+
+    def inspect_crops(self, crops_rgb: list[np.ndarray]) -> list[VisionObservation]:
+        return [self.inspect_crop(crop_rgb) for crop_rgb in crops_rgb]
 
 
 def estimate_color(crop_rgb: np.ndarray) -> str | None:
