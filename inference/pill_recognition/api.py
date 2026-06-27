@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
+import re
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
@@ -9,7 +11,7 @@ from time import perf_counter
 from typing import Callable
 
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field
@@ -76,16 +78,20 @@ def create_app(
         }
 
     @app.post("/recognize")
-    async def recognize(file: UploadFile = File(...)):
+    async def recognize(
+        file: UploadFile = File(...),
+        allowed_pill_ids: list[str] | None = Form(None),
+    ):
         request_start = perf_counter()
         decode_start = perf_counter()
         image_rgb = await read_upload_image(file)
         decode_ms = elapsed_ms(decode_start)
+        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
-        result = pipeline.recognize(image_rgb)
+        result = pipeline.recognize(image_rgb, allowed_pill_ids=pill_scope)
         attach_api_timings(
             result,
             request_start=request_start,
@@ -96,16 +102,20 @@ def create_app(
         return result.to_dict()
 
     @app.post("/crops/recognize")
-    async def recognize_crop(file: UploadFile = File(...)):
+    async def recognize_crop(
+        file: UploadFile = File(...),
+        allowed_pill_ids: list[str] | None = Form(None),
+    ):
         request_start = perf_counter()
         decode_start = perf_counter()
         crop_rgb = await read_upload_image(file)
         decode_ms = elapsed_ms(decode_start)
+        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
-        result = pipeline.recognize_crop(crop_rgb)
+        result = pipeline.recognize_crop(crop_rgb, allowed_pill_ids=pill_scope)
         attach_api_timings(
             result,
             request_start=request_start,
@@ -116,18 +126,25 @@ def create_app(
         return result.to_dict()
 
     @app.post("/crops/recognize-batch")
-    async def recognize_crops_batch(files: list[UploadFile] = File(...)):
+    async def recognize_crops_batch(
+        files: list[UploadFile] = File(...),
+        allowed_pill_ids: list[str] | None = Form(None),
+    ):
         request_start = perf_counter()
         settings = get_settings()
         validate_crop_batch_size(files, settings.max_batch_crops)
         decode_start = perf_counter()
         crops_rgb = [await read_upload_image(file) for file in files]
         decode_ms = elapsed_ms(decode_start)
+        pill_scope = parse_allowed_pill_ids(allowed_pill_ids)
         pipeline_get_start = perf_counter()
         pipeline = pipeline_factory()
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
-        result = pipeline.recognize_crops_batch(crops_rgb)
+        result = pipeline.recognize_crops_batch(
+            crops_rgb,
+            allowed_pill_ids=pill_scope,
+        )
         attach_api_timings(
             result,
             request_start=request_start,
@@ -448,6 +465,24 @@ def refine_candidates(
 
 def normalize_pill_id_set(pill_ids: list[str]) -> set[str]:
     return {str(pill_id).strip() for pill_id in pill_ids if str(pill_id).strip()}
+
+
+def parse_allowed_pill_ids(values: list[str] | None) -> set[str]:
+    pill_ids = []
+    for value in values or []:
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                pill_ids.extend(str(item) for item in parsed)
+                continue
+        pill_ids.extend(part for part in re.split(r"[\s,]+", raw) if part)
+    return normalize_pill_id_set(pill_ids)
 
 
 def scope_product_index(product_index: dict, allowed_pill_ids: set[str]) -> dict:

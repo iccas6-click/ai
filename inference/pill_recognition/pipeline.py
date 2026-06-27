@@ -64,7 +64,11 @@ class PillRecognitionPipeline:
             return None
         return AIHubResNetRetriever.from_settings(self.settings)
 
-    def recognize(self, image_rgb: np.ndarray) -> RecognitionResult:
+    def recognize(
+        self,
+        image_rgb: np.ndarray,
+        allowed_pill_ids: set[str] | None = None,
+    ) -> RecognitionResult:
         total_start = perf_counter()
         image_rgb = ensure_rgb_uint8(image_rgb)
         height, width = image_rgb.shape[:2]
@@ -104,7 +108,10 @@ class PillRecognitionPipeline:
 
         crops = [crop for _, _, _, crop, _ in detected_crops]
         recognition_start = perf_counter()
-        recognition_batches, vision_observations = self._recognize_crops(crops)
+        recognition_batches, vision_observations = self._recognize_crops(
+            crops,
+            allowed_pill_ids=allowed_pill_ids,
+        )
         recognition_ms = elapsed_ms(recognition_start)
 
         postprocess_start = perf_counter()
@@ -159,12 +166,23 @@ class PillRecognitionPipeline:
             },
         )
 
-    def recognize_crop(self, crop_rgb: np.ndarray) -> RecognitionResult:
-        result = self.recognize_crops_batch([crop_rgb])
+    def recognize_crop(
+        self,
+        crop_rgb: np.ndarray,
+        allowed_pill_ids: set[str] | None = None,
+    ) -> RecognitionResult:
+        result = self.recognize_crops_batch(
+            [crop_rgb],
+            allowed_pill_ids=allowed_pill_ids,
+        )
         result.model_version = f"single-crop+{self._recognizer_version()}"
         return result
 
-    def recognize_crops_batch(self, crops_rgb: list[np.ndarray]) -> RecognitionResult:
+    def recognize_crops_batch(
+        self,
+        crops_rgb: list[np.ndarray],
+        allowed_pill_ids: set[str] | None = None,
+    ) -> RecognitionResult:
         total_start = perf_counter()
         preprocess_start = perf_counter()
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
@@ -173,7 +191,10 @@ class PillRecognitionPipeline:
             warnings.extend(assess_image_quality(crop, context=f"crop {index}"))
         preprocess_ms = elapsed_ms(preprocess_start)
         recognition_start = perf_counter()
-        recognition_batches, vision_observations = self._recognize_crops(crops)
+        recognition_batches, vision_observations = self._recognize_crops(
+            crops,
+            allowed_pill_ids=allowed_pill_ids,
+        )
         recognition_ms = elapsed_ms(recognition_start)
         postprocess_start = perf_counter()
         detections = []
@@ -225,6 +246,7 @@ class PillRecognitionPipeline:
     def _recognize_crops(
         self,
         crops: list[np.ndarray],
+        allowed_pill_ids: set[str] | None = None,
     ) -> tuple[list[list[ProductCandidate]], list[VisionObservation]]:
         if self.settings.recognizer == "retrieval":
             return (
@@ -232,6 +254,7 @@ class PillRecognitionPipeline:
                     self.retriever,
                     crops,
                     self.settings.top_k,
+                    allowed_pill_ids=allowed_pill_ids,
                 ),
                 [local_visual_observation(crop) for crop in crops],
             )
@@ -268,6 +291,7 @@ def recognize_crops_with_retriever(
     retriever,
     crops: list[np.ndarray],
     top_k: int,
+    allowed_pill_ids: set[str] | None = None,
 ) -> list[list[ProductCandidate]]:
     if not crops:
         return []
@@ -277,7 +301,11 @@ def recognize_crops_with_retriever(
     results = [[] for _ in crops]
     if not valid_pairs:
         return results
-    predictions = retriever.predict_batch([crop for _, crop in valid_pairs], top_k)
+    predictions = retriever.predict_batch(
+        [crop for _, crop in valid_pairs],
+        top_k,
+        allowed_pill_ids=allowed_pill_ids,
+    )
     for (index, _), candidates in zip(valid_pairs, predictions):
         results[index] = candidates
     return results

@@ -58,7 +58,7 @@ flowchart TD
 ## Recommended App Sequence
 
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
-2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다.
+2. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. 사용자의 복약목록 K-ID가 있으면 `allowed_pill_ids`를 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
 3. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
 4. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
 5. 각 detection마다 `candidates[0:3]`, `ingredient`, `reference_image_url`, `print_front`, `print_back`, `drug_shape`, `color_class1`, `color_class2`, `status`를 보여줍니다.
@@ -67,7 +67,7 @@ flowchart TD
    - 알약 앞/뒷면 각인 입력
    - 선택된 알약의 반대면 crop 추가 촬영
    - 더 가까운 재촬영
-8. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다.
+8. 추가 crop이 있으면 `POST /crops/recognize-batch`로 한 번에 보냅니다. 이때도 같은 `allowed_pill_ids`를 함께 보냅니다.
 9. 최초 후보와 추가 crop 후보를 합쳐 `POST /products/refine`으로 보냅니다.
 10. refine 응답의 `status`를 다시 확인하고 사용자 확인 UI를 갱신합니다.
 

@@ -66,6 +66,14 @@ curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg"
 ```
 
+사용자의 복약목록 K-ID가 있으면 최초 인식 요청부터 검색 범위를 줄일 수 있습니다. `allowed_pill_ids`는 JSON 배열 문자열, 쉼표 구분, 공백 구분을 모두 허용합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8001/recognize \
+  -F "file=@sample.jpg" \
+  -F 'allowed_pill_ids=["K-001732","K-012914","K-000845"]'
+```
+
 응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 파이프라인 내부 `quality`, `detector`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total` latency가 포함됩니다. Warmup이 정상 완료되면 일반 요청의 `pipeline_get`은 매우 작아야 합니다.
 
 선택한 알약 crop 단독 인식 API:
@@ -82,7 +90,8 @@ curl -X POST http://127.0.0.1:8001/crops/recognize \
 ```bash
 curl -X POST http://127.0.0.1:8001/crops/recognize-batch \
   -F "files=@front_crop.jpg" \
-  -F "files=@back_crop.jpg"
+  -F "files=@back_crop.jpg" \
+  -F 'allowed_pill_ids=["K-001732","K-012914","K-000845"]'
 ```
 
 이 endpoint는 여러 crop을 한 번의 batch로 AIHub retrieval에 넣습니다. 앞/뒷면 crop이나 여러 선택 알약을 재확인할 때 HTTP 왕복과 모델 호출 부담을 줄일 수 있습니다. 기본 최대 crop 수는 `PILL_MAX_BATCH_CROPS=12`이고, 이미지 1장 기본 제한은 `PILL_MAX_UPLOAD_BYTES=10485760`, `PILL_MAX_IMAGE_PIXELS=12000000`입니다.

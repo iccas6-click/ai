@@ -28,9 +28,11 @@ class FakeDetector:
 class FakeRetriever:
     model_version = "fake-retriever"
     calls = 0
+    allowed_pill_ids = None
 
-    def predict_batch(self, crops_rgb, top_k):
+    def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
         self.calls += 1
+        self.allowed_pill_ids = allowed_pill_ids
         return [
             [
                 ProductCandidate(
@@ -54,7 +56,7 @@ class ExplodingDetector:
 class AmbiguousRetriever:
     model_version = "ambiguous-retriever"
 
-    def predict_batch(self, crops_rgb, top_k):
+    def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
         return [
             [
                 ProductCandidate(
@@ -87,7 +89,7 @@ class SingleFakeDetector:
 class EmptyRetriever:
     model_version = "empty-retriever"
 
-    def predict_batch(self, crops_rgb, top_k):
+    def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
         return [[] for _ in crops_rgb]
 
 
@@ -156,6 +158,23 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
         "total",
     }
     assert result.timings_ms["total"] >= 0
+
+
+def test_pipeline_passes_allowed_pill_scope_to_retriever():
+    retriever = FakeRetriever()
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=SingleFakeDetector(),
+        retriever=retriever,
+        product_index={},
+    )
+
+    pipeline.recognize(
+        np.zeros((64, 64, 3), dtype=np.uint8) + 255,
+        allowed_pill_ids={"K-000001", "K-000777"},
+    )
+
+    assert retriever.allowed_pill_ids == {"K-000001", "K-000777"}
 
 
 def test_pipeline_recognize_crop_skips_detector_and_returns_single_crop_result():

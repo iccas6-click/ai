@@ -4,7 +4,11 @@ import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from pill_recognition.api import create_app, detect_image_media_type
+from pill_recognition.api import (
+    create_app,
+    detect_image_media_type,
+    parse_allowed_pill_ids,
+)
 from pill_recognition.schemas import (
     PillDetection,
     ProductCandidate,
@@ -17,20 +21,24 @@ from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 
 class FakePipeline:
     warmup_calls = 0
+    last_allowed_pill_ids = None
 
     def warmup(self, load_detector=True):
         self.warmup_calls += 1
 
-    def recognize(self, image_rgb):
+    def recognize(self, image_rgb, allowed_pill_ids=None):
         assert image_rgb.shape == (12, 16, 3)
+        self.last_allowed_pill_ids = allowed_pill_ids
         return fake_result("fake", "needs_confirmation")
 
-    def recognize_crop(self, image_rgb):
+    def recognize_crop(self, image_rgb, allowed_pill_ids=None):
         assert image_rgb.shape == (12, 16, 3)
+        self.last_allowed_pill_ids = allowed_pill_ids
         return fake_result("fake-crop", "needs_confirmation")
 
-    def recognize_crops_batch(self, images_rgb):
+    def recognize_crops_batch(self, images_rgb, allowed_pill_ids=None):
         assert [image.shape for image in images_rgb] == [(12, 16, 3), (10, 8, 3)]
+        self.last_allowed_pill_ids = allowed_pill_ids
         return RecognitionResult(
             image_width=16,
             image_height=12,
@@ -164,6 +172,27 @@ def test_recognize_accepts_uploaded_image():
     assert_api_timings(payload["timings_ms"])
 
 
+def test_recognize_passes_allowed_pill_scope_to_pipeline():
+    pipeline = FakePipeline()
+    app = create_app(lambda: pipeline)
+    client = TestClient(app)
+
+    response = client.post(
+        "/recognize",
+        files={"file": ("pill.jpg", image_bytes(16, 12), "image/jpeg")},
+        data={"allowed_pill_ids": "[\"K-000001\", \"K-000002\", \"K-000003\"]"},
+    )
+
+    assert response.status_code == 200
+    assert pipeline.last_allowed_pill_ids == {"K-000001", "K-000002", "K-000003"}
+
+
+def test_parse_allowed_pill_ids_accepts_json_commas_and_whitespace():
+    assert parse_allowed_pill_ids(
+        ["K-000001,K-000002", "K-000003 K-000004", "[\"K-000005\"]"]
+    ) == {"K-000001", "K-000002", "K-000003", "K-000004", "K-000005"}
+
+
 def test_recognize_crop_accepts_uploaded_single_pill_crop():
     app = create_app(lambda: FakePipeline())
     client = TestClient(app)
@@ -203,6 +232,24 @@ def test_recognize_crop_batch_accepts_multiple_uploaded_crops():
         "K-000002",
     ]
     assert_api_timings(payload["timings_ms"])
+
+
+def test_recognize_crop_batch_passes_allowed_pill_scope_to_pipeline():
+    pipeline = FakePipeline()
+    app = create_app(lambda: pipeline)
+    client = TestClient(app)
+
+    response = client.post(
+        "/crops/recognize-batch",
+        files=[
+            ("files", ("front.jpg", image_bytes(16, 12), "image/jpeg")),
+            ("files", ("back.jpg", image_bytes(8, 10), "image/jpeg")),
+        ],
+        data={"allowed_pill_ids": "K-USER K-OTHER"},
+    )
+
+    assert response.status_code == 200
+    assert pipeline.last_allowed_pill_ids == {"K-USER", "K-OTHER"}
 
 
 def test_recognize_crop_batch_rejects_too_many_files(monkeypatch):

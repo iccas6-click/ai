@@ -65,6 +65,7 @@ class AIHubResNetRetriever:
         if not isinstance(pill_ids, list) or not torch.is_tensor(embeddings):
             raise ValueError("Retrieval index has invalid format")
         self.pill_ids = [str(pill_id) for pill_id in pill_ids]
+        self.index_positions_by_pill_id = build_index_positions(self.pill_ids)
         self.index_mode = str(payload.get("index_mode", "prototype"))
         self.embeddings = torch.nn.functional.normalize(
             embeddings.float(),
@@ -91,11 +92,22 @@ class AIHubResNetRetriever:
         self,
         crops_rgb: list[np.ndarray],
         top_k: int,
+        allowed_pill_ids: set[str] | None = None,
     ) -> list[list[ProductCandidate]]:
         if not crops_rgb:
             return []
         query_embeddings = self.embed_crops(crops_rgb)
         scores = query_embeddings @ self.embeddings.T
+        selected_index_positions = self._selected_index_positions(allowed_pill_ids)
+        if allowed_pill_ids and not selected_index_positions:
+            return [[] for _ in crops_rgb]
+        if selected_index_positions:
+            selected_tensor = torch.tensor(
+                selected_index_positions,
+                device=scores.device,
+                dtype=torch.long,
+            )
+            scores = scores.index_select(1, selected_tensor)
         search_k = min(max(top_k * 24, 64), scores.shape[1])
         values, indices = torch.topk(scores, search_k, dim=1)
         crop_features = (
@@ -111,7 +123,12 @@ class AIHubResNetRetriever:
         ):
             best_by_pill_id: dict[str, float] = {}
             for score, index in zip(row_values, row_indices):
-                pill_id = self.pill_ids[index]
+                source_index = (
+                    selected_index_positions[index]
+                    if selected_index_positions
+                    else index
+                )
+                pill_id = self.pill_ids[source_index]
                 product = self.product_master.get(pill_id)
                 reranked_score = (
                     apply_metadata_rerank(float(score), product, features)
@@ -142,6 +159,14 @@ class AIHubResNetRetriever:
                 )
             results.append(row_candidates)
         return results
+
+    def _selected_index_positions(self, allowed_pill_ids: set[str] | None) -> list[int]:
+        if not allowed_pill_ids:
+            return []
+        positions = []
+        for pill_id in sorted(allowed_pill_ids):
+            positions.extend(self.index_positions_by_pill_id.get(pill_id, []))
+        return positions
 
     def embed_crops(self, crops_rgb: list[np.ndarray]) -> torch.Tensor:
         rotations = (0, 1, 2, 3) if self.rotation_tta else (0,)
@@ -230,6 +255,13 @@ def apply_metadata_rerank(
 
 def normalize_metadata_text(value: str | None) -> str:
     return str(value or "").strip()
+
+
+def build_index_positions(pill_ids: list[str]) -> dict[str, list[int]]:
+    positions: dict[str, list[int]] = {}
+    for index, pill_id in enumerate(pill_ids):
+        positions.setdefault(pill_id, []).append(index)
+    return positions
 
 
 def load_aihub_resnet_encoder(weights_path: Path) -> torch.nn.Module:
