@@ -57,11 +57,7 @@ class PillRecognitionPipeline:
             )
             x1, y1, x2, y2 = crop_bbox
             crop = image_rgb[y1:y2, x1:x2]
-            observation = (
-                self.vision_provider.inspect_crop(crop)
-                if crop.size
-                else VisionObservation(notes="empty crop")
-            )
+            observation = inspect_crop_safely(self.vision_provider, crop)
             candidates = rank_product_candidates(
                 search_products(
                     self.product_index,
@@ -120,6 +116,19 @@ def product_query_from_observation(
         text=" ".join(text_parts),
         limit=limit,
     )
+
+
+def inspect_crop_safely(vision_provider, crop: np.ndarray) -> VisionObservation:
+    if not crop.size:
+        return VisionObservation(notes="empty crop")
+    try:
+        return vision_provider.inspect_crop(crop)
+    except Exception as error:
+        return VisionObservation(
+            confidence=0.0,
+            notes=f"{vision_provider.name} provider failed: {type(error).__name__}: {error}",
+            raw={"provider": vision_provider.name, "error": str(error)},
+        )
 
 
 def rank_product_candidates(rows: list[dict], limit: int) -> list[ProductCandidate]:

@@ -29,6 +29,13 @@ class FakeVisionProvider:
         )
 
 
+class FailingVisionProvider:
+    name = "failing-vision"
+
+    def inspect_crop(self, crop_rgb):
+        raise RuntimeError("boom")
+
+
 def test_pipeline_uses_vision_clues_to_search_product_db():
     pipeline = PillRecognitionPipeline(
         settings=Settings(top_k=3),
@@ -50,3 +57,17 @@ def test_pipeline_uses_vision_clues_to_search_product_db():
     assert result.model_version == "rtmdet-single-class+fake-vision+aihub-db"
     assert result.detections[0].candidates[0].pill_id == "K-000001"
     assert result.detections[0].status == "needs_confirmation"
+
+
+def test_pipeline_keeps_running_when_vision_provider_fails():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3),
+        detector=FakeDetector(),
+        vision_provider=FailingVisionProvider(),
+        product_index={},
+    )
+
+    result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
+
+    assert result.detections[0].status == "needs_manual_search"
+    assert "provider failed" in result.detections[0].vision.notes
