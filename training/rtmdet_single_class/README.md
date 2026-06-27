@@ -67,6 +67,16 @@ datasets/processed/rtmdet-aihub-synthetic-realistic-max10/
 생성된 라벨은 detector 학습용 단일 클래스 `pill=0`입니다. 제품명과 AI Hub K-ID는 `metadata/`에 보존해 end-to-end 검증용 manifest를 만들 때 사용합니다.
 기본 배경은 나무 책상, 종이, 대리석, 패브릭, 손바닥, 조리대 느낌의 절차적 표면입니다. 기존 단순 배경이 필요하면 `--background-mode simple`을 붙입니다.
 
+현재 생성기는 crop을 그대로 붙이지 않고 다음 후처리를 적용합니다.
+
+- 전경 mask를 distance transform 기반 soft alpha로 feathering
+- mask 품질(`area_ratio`, `bbox_fill_ratio`, `soft_edge_ratio`) 기록 및 불량 mask 제외
+- 배경 밝기/색에 맞춘 약한 patch tone adaptation
+- 접촉 그림자와 약한 blur로 스티커처럼 떠 보이는 경계 완화
+
+이 합성셋은 RTMDet 단일 클래스 detector 학습과 5~10개 알약 위치 탐지 stress test용입니다. 제품명 retrieval 정확도 판단은 실제 스마트폰 평가셋을 기준으로 합니다.
+`manifest.json`에는 `requested_count_distribution`과 `placed_count_distribution`을 모두 기록합니다. 두 분포 차이가 크면 crop 크기, mask 품질 threshold, image size를 먼저 확인해야 합니다.
+
 ## 학습
 
 118 클래스 RTMDet v4 체크포인트에서 backbone, neck, box regression 가중치를 재사용하고 118 클래스 분류 출력층은 제거합니다. 새 출력층은 `pill` 한 클래스만 예측합니다.

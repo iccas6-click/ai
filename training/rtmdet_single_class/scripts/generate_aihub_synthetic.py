@@ -162,6 +162,7 @@ def generate_split(
     annotation_id = 1
     class_names = list(class_index)
     count_distribution: dict[int, int] = {}
+    placed_count_distribution: dict[int, int] = {}
 
     for image_index in range(count):
         pill_count = rng.randint(min_pills, max_pills)
@@ -215,6 +216,10 @@ def generate_split(
             )
             annotation_id += 1
         count_distribution[pill_count] = count_distribution.get(pill_count, 0) + 1
+        actual_count = scene["metadata"]["pill_count"]
+        placed_count_distribution[actual_count] = (
+            placed_count_distribution.get(actual_count, 0) + 1
+        )
 
         if (image_index + 1) % 500 == 0:
             print(f"{split}: generated {image_index + 1}/{count}", flush=True)
@@ -231,7 +236,8 @@ def generate_split(
     return {
         "images": count,
         "annotations": len(coco_annotations),
-        "count_distribution": dict(sorted(count_distribution.items())),
+        "requested_count_distribution": dict(sorted(count_distribution.items())),
+        "placed_count_distribution": dict(sorted(placed_count_distribution.items())),
     }
 
 
@@ -252,17 +258,26 @@ def synthesize_scene(
     while len(selected_classes) < pill_count:
         selected_classes.append(rng.choice(class_names))
 
-    for pill_index, class_name in enumerate(selected_classes, start=1):
+    max_attempts = max(40, pill_count * 12)
+    attempts = 0
+    while len(pills) < pill_count and attempts < max_attempts:
+        attempts += 1
+        class_name = (
+            selected_classes[attempts - 1]
+            if attempts <= len(selected_classes)
+            else rng.choice(class_names)
+        )
         asset = class_index[class_name]
         source_image = rng.choice(asset.image_paths)
-        patch, alpha = load_pill_patch(source_image, rng)
-        if patch is None or alpha is None:
+        patch, alpha, mask_quality = load_pill_patch(source_image, rng)
+        if patch is None or alpha is None or mask_quality is None:
             continue
         box, pasted = paste_patch(canvas, patch, alpha, placed_boxes, rng)
         if box is None:
             continue
         placed_boxes.append(box)
         yolo_labels.append(format_yolo_label(box, image_size, image_size))
+        pill_index = len(pills) + 1
         pills.append(
             {
                 "pill_id": pill_index,
@@ -273,6 +288,7 @@ def synthesize_scene(
                 "source_image": str(source_image),
                 "bbox_xyxy": list(box),
                 "bbox_yolo": yolo_labels[-1],
+                "mask_quality": mask_quality,
                 "placed": pasted,
             }
         )
@@ -284,7 +300,9 @@ def synthesize_scene(
             "image_width": image_size,
             "image_height": image_size,
             "background": background_name,
+            "requested_pill_count": pill_count,
             "pill_count": len(pills),
+            "placement_attempts": attempts,
             "pills": pills,
         },
     }
@@ -516,19 +534,23 @@ def apply_photo_lighting(canvas: np.ndarray, rng: random.Random) -> np.ndarray:
 def load_pill_patch(
     image_path: Path,
     rng: random.Random,
-) -> tuple[np.ndarray | None, np.ndarray | None]:
+) -> tuple[np.ndarray | None, np.ndarray | None, dict | None]:
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image is None:
-        return None, None
+        return None, None, None
     mask = extract_foreground_mask(image)
     bbox = mask_bbox(mask)
     if bbox is None:
-        return None, None
+        return None, None, None
     x1, y1, x2, y2 = bbox
     patch = image[y1:y2, x1:x2]
     alpha = mask[y1:y2, x1:x2]
     patch, alpha = augment_patch(patch, alpha, rng)
-    return patch, alpha
+    alpha = feather_alpha(alpha, radius=rng.uniform(2.5, 5.5))
+    quality = compute_mask_quality(alpha)
+    if not is_usable_mask_quality(quality):
+        return None, None, None
+    return patch, alpha, quality
 
 
 def extract_foreground_mask(image: np.ndarray) -> np.ndarray:
@@ -600,6 +622,44 @@ def augment_patch(
     return patch, alpha
 
 
+def feather_alpha(alpha: np.ndarray, radius: float = 4.0) -> np.ndarray:
+    binary = (alpha > 24).astype(np.uint8) * 255
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    inside = cv2.distanceTransform(binary, cv2.DIST_L2, 3)
+    outside = cv2.distanceTransform(255 - binary, cv2.DIST_L2, 3)
+    signed_distance = inside - outside
+    soft = np.clip((signed_distance + radius) / (2.0 * radius), 0.0, 1.0)
+    return (soft * 255).astype(np.uint8)
+
+
+def compute_mask_quality(alpha: np.ndarray) -> dict:
+    foreground = alpha > 32
+    bbox = mask_bbox(alpha)
+    foreground_area = int(foreground.sum())
+    total_area = int(alpha.shape[0] * alpha.shape[1])
+    if bbox is None:
+        return {
+            "area_ratio": 0.0,
+            "bbox_fill_ratio": 0.0,
+            "soft_edge_ratio": 0.0,
+        }
+    x1, y1, x2, y2 = bbox
+    bbox_area = max(1, int((x2 - x1) * (y2 - y1)))
+    soft_edges = np.logical_and(alpha > 0, alpha < 255)
+    return {
+        "area_ratio": round(foreground_area / max(1, total_area), 4),
+        "bbox_fill_ratio": round(foreground_area / bbox_area, 4),
+        "soft_edge_ratio": round(int(soft_edges.sum()) / max(1, total_area), 4),
+    }
+
+
+def is_usable_mask_quality(quality: dict) -> bool:
+    return (
+        0.08 <= float(quality["area_ratio"]) <= 0.96
+        and float(quality["bbox_fill_ratio"]) >= 0.28
+    )
+
+
 def rotate_patch(
     patch: np.ndarray,
     alpha: np.ndarray,
@@ -662,18 +722,38 @@ def paste_patch(
 
     shadow_offset = rng.randint(3, 9)
     shadow_alpha = cv2.GaussianBlur(alpha, (0, 0), rng.uniform(2.0, 5.0))
-    apply_shadow(canvas, shadow_alpha, x1 + shadow_offset, y1 + shadow_offset)
+    apply_shadow(
+        canvas,
+        shadow_alpha,
+        x1 + shadow_offset,
+        y1 + shadow_offset,
+        strength=rng.uniform(0.14, 0.28),
+    )
 
     region = canvas[y1:y2, x1:x2]
+    patch = match_patch_to_background(patch, alpha, region, rng)
     blend_alpha = (alpha.astype(np.float32) / 255.0)[:, :, None]
     canvas[y1:y2, x1:x2] = (
         patch.astype(np.float32) * blend_alpha
         + region.astype(np.float32) * (1.0 - blend_alpha)
     ).astype(np.uint8)
-    return box, {"x": x1, "y": y1, "width": patch_width, "height": patch_height}
+    return box, {
+        "x": x1,
+        "y": y1,
+        "width": patch_width,
+        "height": patch_height,
+        "shadow_offset": shadow_offset,
+        "alpha_feathered": True,
+    }
 
 
-def apply_shadow(canvas: np.ndarray, alpha: np.ndarray, x1: int, y1: int) -> None:
+def apply_shadow(
+    canvas: np.ndarray,
+    alpha: np.ndarray,
+    x1: int,
+    y1: int,
+    strength: float = 0.22,
+) -> None:
     canvas_height, canvas_width = canvas.shape[:2]
     patch_height, patch_width = alpha.shape[:2]
     x2 = min(canvas_width, x1 + patch_width)
@@ -687,10 +767,34 @@ def apply_shadow(canvas: np.ndarray, alpha: np.ndarray, x1: int, y1: int) -> Non
     target_x2 = x2
     target_y2 = y2
     shadow = alpha[source_y1:source_y1 + target_y2 - target_y1, source_x1:source_x1 + target_x2 - target_x1]
-    factor = 1.0 - (shadow.astype(np.float32) / 255.0 * 0.22)[:, :, None]
+    factor = 1.0 - (shadow.astype(np.float32) / 255.0 * strength)[:, :, None]
     canvas[target_y1:target_y2, target_x1:target_x2] = (
         canvas[target_y1:target_y2, target_x1:target_x2].astype(np.float32) * factor
     ).astype(np.uint8)
+
+
+def match_patch_to_background(
+    patch: np.ndarray,
+    alpha: np.ndarray,
+    region: np.ndarray,
+    rng: random.Random,
+) -> np.ndarray:
+    foreground = alpha > 64
+    background = alpha < 8
+    if foreground.sum() < 16 or background.sum() < 16:
+        return patch
+    patch_float = patch.astype(np.float32)
+    region_float = region.astype(np.float32)
+    foreground_mean = patch_float[foreground].mean(axis=0)
+    background_mean = region_float[background].mean(axis=0)
+    target_luma = float(background_mean.mean())
+    foreground_luma = float(foreground_mean.mean())
+    luma_delta = np.clip((target_luma - foreground_luma) * rng.uniform(0.04, 0.12), -12, 12)
+    color_delta = np.clip((background_mean - foreground_mean) * rng.uniform(0.015, 0.045), -8, 8)
+    adjusted = patch_float + luma_delta + color_delta[None, None, :]
+    if rng.random() < 0.35:
+        adjusted = cv2.GaussianBlur(adjusted, (0, 0), rng.uniform(0.15, 0.45))
+    return np.clip(adjusted, 0, 255).astype(np.uint8)
 
 
 def format_yolo_label(box: tuple[int, int, int, int], image_width: int, image_height: int) -> str:
