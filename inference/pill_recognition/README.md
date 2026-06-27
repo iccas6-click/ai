@@ -9,7 +9,7 @@ image
 -> AI Hub ResNet152 feature embedding
 -> cosine search against AI Hub 1000-class reference prototypes
 -> optional metadata rerank using estimated color/shape
--> Top-N product candidates with ingredients
+-> Top-3 product candidates with ingredients and review status
 ```
 
 기존 `RTMDet + AIHub ResNet152 + EfficientNet` baseline은 `inference/pill_recognition_legacy/`에 보존합니다.
@@ -17,6 +17,8 @@ image
 ## 실행
 
 기본값은 외부 API 없이 실행되는 retrieval recognizer입니다. 실행 전 AI Hub reference index를 한 번 생성해야 합니다.
+
+서비스 기본 응답은 알약별 제품 후보 Top-3입니다. 후보가 없으면 `no_candidate`, 점수가 낮으면 `low_confidence`, 1·2위 후보가 붙어 있으면 `ambiguous`, 그 외에는 `needs_confirmation`으로 반환합니다. 모든 상태는 최종 복용 전 사용자 확인이 필요하다는 전제를 유지합니다.
 
 ```bash
 cd /home/gyuha_lee/pill/code/ai/inference

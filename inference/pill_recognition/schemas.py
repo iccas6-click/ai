@@ -30,7 +30,7 @@ class VisionObservation:
 class ProductCandidate:
     rank: int
     pill_id: str
-    score: int
+    score: float
     source: str = "aihub_db"
     product_name: str | None = None
     ingredient: str | None = None
@@ -55,6 +55,7 @@ class PillDetection:
     vision: VisionObservation
     candidates: list[ProductCandidate]
     status: str
+    status_reason: str | None = None
 
 
 @dataclass

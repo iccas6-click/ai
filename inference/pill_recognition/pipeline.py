@@ -93,6 +93,11 @@ class PillRecognitionPipeline:
             detected_crops,
             recognition_batches,
         ):
+            status, status_reason = determine_status(
+                candidates,
+                min_score=self.settings.candidate_min_score,
+                ambiguity_margin=self.settings.candidate_ambiguity_margin,
+            )
             detections.append(
                 PillDetection(
                     pill_id=pill_id,
@@ -101,7 +106,8 @@ class PillRecognitionPipeline:
                     detector_confidence=round(detector_confidence, 4),
                     vision=VisionObservation(),
                     candidates=candidates,
-                    status=determine_status(candidates),
+                    status=status,
+                    status_reason=status_reason,
                 )
             )
 
@@ -343,10 +349,34 @@ def normalize_name(value: str | None) -> str:
     return "".join(str(value or "").split()).upper()
 
 
-def determine_status(candidates: list[ProductCandidate]) -> str:
+def determine_status(
+    candidates: list[ProductCandidate],
+    min_score: float = 70.0,
+    ambiguity_margin: float = 3.0,
+) -> tuple[str, str]:
     if not candidates:
-        return "no_candidate"
-    return "needs_confirmation"
+        return "no_candidate", "No product candidate was found for this detected pill."
+
+    top_score = float(candidates[0].score)
+    if top_score < min_score:
+        return (
+            "low_confidence",
+            f"Top candidate score {top_score:.2f} is below the review threshold {min_score:.2f}.",
+        )
+
+    if len(candidates) >= 2:
+        second_score = float(candidates[1].score)
+        margin = top_score - second_score
+        if margin < ambiguity_margin:
+            return (
+                "ambiguous",
+                f"Top-2 candidate score margin {margin:.2f} is below {ambiguity_margin:.2f}.",
+            )
+
+    return (
+        "needs_confirmation",
+        "Candidate is available, but final medication identity must be confirmed by the user.",
+    )
 
 
 def expand_bbox(

@@ -12,7 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 class Settings:
     device: str = "cuda:0"
     crop_padding_ratio: float = 0.12
-    top_k: int = 5
+    top_k: int = 3
+    candidate_min_score: float = 70.0
+    candidate_ambiguity_margin: float = 3.0
     recognizer: str = "retrieval"
     gemini_model: str = "gemini-3.5-flash"
     gemini_api_key: str | None = None
@@ -74,7 +76,11 @@ class Settings:
         return cls(
             device=os.getenv("PILL_DEVICE", "cuda:0"),
             crop_padding_ratio=float(os.getenv("PILL_CROP_PADDING_RATIO", "0.12")),
-            top_k=int(os.getenv("PILL_TOP_K", "5")),
+            top_k=int(os.getenv("PILL_TOP_K", "3")),
+            candidate_min_score=float(os.getenv("PILL_CANDIDATE_MIN_SCORE", "70")),
+            candidate_ambiguity_margin=float(
+                os.getenv("PILL_CANDIDATE_AMBIGUITY_MARGIN", "3")
+            ),
             recognizer=os.getenv("PILL_RECOGNIZER", "retrieval").strip().lower(),
             gemini_model=os.getenv("PILL_GEMINI_MODEL", "gemini-3.5-flash"),
             gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),

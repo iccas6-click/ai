@@ -1,6 +1,6 @@
 import numpy as np
 
-from pill_recognition.pipeline import PillRecognitionPipeline
+from pill_recognition.pipeline import PillRecognitionPipeline, determine_status
 from pill_recognition.schemas import ProductCandidate, VisionObservation
 from pill_recognition.settings import Settings
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
@@ -39,6 +39,29 @@ class FakeRetriever:
                 )
             ]
             for index, _ in enumerate(crops_rgb, start=1)
+        ]
+
+
+class AmbiguousRetriever:
+    model_version = "ambiguous-retriever"
+
+    def predict_batch(self, crops_rgb, top_k):
+        return [
+            [
+                ProductCandidate(
+                    rank=1,
+                    pill_id="K-000001",
+                    score=88.0,
+                    product_name="후보1",
+                ),
+                ProductCandidate(
+                    rank=2,
+                    pill_id="K-000002",
+                    score=86.0,
+                    product_name="후보2",
+                ),
+            ]
+            for _ in crops_rgb
         ]
 
 
@@ -92,6 +115,7 @@ def test_pipeline_uses_retriever_batch_for_detected_crops():
     assert result.pill_count == 2
     assert retriever.calls == 1
     assert result.detections[0].status == "needs_confirmation"
+    assert result.detections[0].status_reason
 
 
 def test_pipeline_marks_no_candidate_when_retriever_returns_empty():
@@ -105,3 +129,28 @@ def test_pipeline_marks_no_candidate_when_retriever_returns_empty():
     result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
 
     assert result.detections[0].status == "no_candidate"
+    assert result.detections[0].status_reason
+
+
+def test_pipeline_marks_ambiguous_when_top_candidates_are_close():
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(top_k=3, candidate_ambiguity_margin=3),
+        detector=SingleFakeDetector(),
+        retriever=AmbiguousRetriever(),
+        product_index={},
+    )
+
+    result = pipeline.recognize(np.zeros((64, 64, 3), dtype=np.uint8) + 255)
+
+    assert result.detections[0].status == "ambiguous"
+    assert "Top-2" in result.detections[0].status_reason
+
+
+def test_determine_status_marks_low_confidence():
+    status, reason = determine_status(
+        [ProductCandidate(rank=1, pill_id="K-000001", score=42.0)],
+        min_score=70,
+    )
+
+    assert status == "low_confidence"
+    assert "below" in reason
