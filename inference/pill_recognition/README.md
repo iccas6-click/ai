@@ -113,6 +113,18 @@ python -m pill_recognition.benchmark_api_latency \
   --output outputs/evaluation/api-latency.json
 ```
 
+복약목록 기반 scoped retrieval latency를 측정하려면 같은 benchmark에 `--allowed-pill-ids`를 추가합니다.
+
+```bash
+python -m pill_recognition.benchmark_api_latency \
+  --base-url http://127.0.0.1:8001 \
+  --crop-counts 1,3,6,12 \
+  --iterations 10 \
+  --warmup 1 \
+  --allowed-pill-ids '["K-000059","K-000069","K-000080"]' \
+  --output outputs/evaluation/api-latency-scoped.json
+```
+
 출력의 `elapsed_ms.p50/p95`는 클라이언트에서 체감하는 HTTP 왕복 시간이고, `api_total_ms.p50/p95`는 서버 내부 처리 시간입니다. `recognition_ms`가 대부분을 차지하면 retrieval batch 최적화 대상이고, `pipeline_get`이 크면 warmup 또는 프로세스 재사용 문제입니다.
 
 각인/색/모양/텍스트 보정 검색 API:

@@ -91,9 +91,19 @@ def load_crop_bytes(path: Path | None) -> bytes:
 def make_multipart_body(
     field_name: str,
     files: list[tuple[str, bytes, str]],
+    fields: list[tuple[str, str]] | None = None,
 ) -> tuple[bytes, str]:
     boundary = f"----pill-benchmark-{uuid.uuid4().hex}"
     body = bytearray()
+    for name, value in fields or []:
+        body.extend(f"--{boundary}\r\n".encode("utf-8"))
+        body.extend(
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(
+                "utf-8"
+            )
+        )
+        body.extend(str(value).encode("utf-8"))
+        body.extend(b"\r\n")
     for filename, payload, content_type in files:
         body.extend(f"--{boundary}\r\n".encode("utf-8"))
         body.extend(
@@ -115,8 +125,9 @@ def post_multipart(
     field_name: str,
     files: list[tuple[str, bytes, str]],
     timeout: float,
+    fields: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    body, content_type = make_multipart_body(field_name, files)
+    body, content_type = make_multipart_body(field_name, files, fields=fields)
     url = f"{base_url.rstrip('/')}{endpoint}"
     req = request.Request(
         url,
@@ -156,6 +167,9 @@ def post_multipart(
         "api_total_ms": timings.get("api_total"),
         "pipeline_call_ms": timings.get("pipeline_call"),
         "recognition_ms": timings.get("recognition"),
+        "candidate_scope": response_json.get("candidate_scope")
+        if isinstance(response_json, dict)
+        else None,
         "pill_count": response_json.get("pill_count")
         if isinstance(response_json, dict)
         else None,
@@ -163,13 +177,19 @@ def post_multipart(
     }
 
 
-def run_crop_once(base_url: str, crop_bytes: bytes, timeout: float) -> dict[str, Any]:
+def run_crop_once(
+    base_url: str,
+    crop_bytes: bytes,
+    timeout: float,
+    allowed_pill_ids: str = "",
+) -> dict[str, Any]:
     return post_multipart(
         base_url=base_url,
         endpoint="/crops/recognize",
         field_name="file",
         files=[("crop.jpg", crop_bytes, "image/jpeg")],
         timeout=timeout,
+        fields=allowed_scope_fields(allowed_pill_ids),
     )
 
 
@@ -178,6 +198,7 @@ def run_batch_once(
     crop_bytes: bytes,
     crop_count: int,
     timeout: float,
+    allowed_pill_ids: str = "",
 ) -> dict[str, Any]:
     files = [
         (f"crop-{index + 1}.jpg", crop_bytes, "image/jpeg")
@@ -189,6 +210,7 @@ def run_batch_once(
         field_name="files",
         files=files,
         timeout=timeout,
+        fields=allowed_scope_fields(allowed_pill_ids),
     )
 
 
@@ -210,6 +232,13 @@ def benchmark_endpoint(
     }
 
 
+def allowed_scope_fields(allowed_pill_ids: str) -> list[tuple[str, str]]:
+    value = allowed_pill_ids.strip()
+    if not value:
+        return []
+    return [("allowed_pill_ids", value)]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Benchmark CLICK pill recognition API crop latency."
@@ -220,6 +249,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--image", type=Path, default=None)
     parser.add_argument("--timeout", type=float, default=120)
+    parser.add_argument(
+        "--allowed-pill-ids",
+        default="",
+        help=(
+            "Optional user medication K-ID scope to send as allowed_pill_ids. "
+            "Accepts the same JSON array, comma, or whitespace format as the API."
+        ),
+    )
     parser.add_argument(
         "--mode",
         choices=["crop", "batch", "both"],
@@ -247,7 +284,12 @@ def main() -> None:
                 crop_count=1,
                 iterations=args.iterations,
                 warmup=args.warmup,
-                call_once=lambda: run_crop_once(args.base_url, crop_bytes, args.timeout),
+                call_once=lambda: run_crop_once(
+                    args.base_url,
+                    crop_bytes,
+                    args.timeout,
+                    args.allowed_pill_ids,
+                ),
             )
         )
     if args.mode in {"batch", "both"}:
@@ -263,6 +305,7 @@ def main() -> None:
                         crop_bytes,
                         count,
                         args.timeout,
+                        args.allowed_pill_ids,
                     ),
                 )
             )
@@ -273,6 +316,7 @@ def main() -> None:
         "warmup": args.warmup,
         "crop_counts": crop_counts,
         "image": str(args.image) if args.image else "generated",
+        "allowed_pill_ids": args.allowed_pill_ids,
         "results": results,
     }
     for result in results:
