@@ -5,6 +5,7 @@ import pytest
 from pill_recognition.aihub_classifier import (
     load_aihub_class_names,
     load_aihub_product_master,
+    rotate_crop,
 )
 
 
@@ -75,3 +76,14 @@ def test_load_aihub_product_master_reads_product_metadata(tmp_path):
     assert products["K-000001"].company == "삼남제약(주)"
     assert products["K-000001"].item_seq == "196400046"
     assert products["K-000001"].etc_otc_code == "일반의약품"
+
+
+def test_rotate_crop_returns_contiguous_rotated_array():
+    import numpy as np
+
+    crop = np.arange(12, dtype=np.uint8).reshape(2, 2, 3)
+
+    rotated = rotate_crop(crop, 1)
+
+    assert rotated.flags["C_CONTIGUOUS"]
+    assert rotated.shape == (2, 2, 3)

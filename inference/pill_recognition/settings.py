@@ -26,6 +26,7 @@ class Settings:
     device: str = "cuda:0"
     aihub_weights: Path | None = None
     aihub_mapping: Path | None = None
+    aihub_rotation_tta: bool = True
     cnn_weights: Path | None = None
     cnn_mapping: Path | None = None
 
@@ -36,6 +37,7 @@ class Settings:
         detector_class_names = os.getenv("PILL_DETECTOR_CLASSES")
         aihub_weights = os.getenv("PILL_AIHUB_WEIGHTS")
         aihub_mapping = os.getenv("PILL_AIHUB_MAPPING")
+        aihub_rotation_tta = parse_bool(os.getenv("PILL_AIHUB_ROTATION_TTA"), default=True)
         cnn_weights = os.getenv("PILL_CNN_WEIGHTS")
         cnn_mapping = os.getenv("PILL_CNN_MAPPING")
         packaged_aihub_dir = (
@@ -101,6 +103,7 @@ class Settings:
                 if aihub_mapping
                 else default_aihub_mapping if default_aihub_mapping.exists() else None
             ),
+            aihub_rotation_tta=aihub_rotation_tta,
             cnn_weights=(
                 Path(cnn_weights).expanduser()
                 if cnn_weights
@@ -112,3 +115,9 @@ class Settings:
                 else default_cnn_mapping if default_cnn_mapping.exists() else None
             ),
         )
+
+
+def parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}

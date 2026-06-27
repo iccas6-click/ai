@@ -25,11 +25,18 @@ class AIHubProductInfo:
 
 
 class AIHubPillClassifier:
-    def __init__(self, weights_path: Path, mapping_path: Path, device: str) -> None:
+    def __init__(
+        self,
+        weights_path: Path,
+        mapping_path: Path,
+        device: str,
+        rotation_tta: bool = True,
+    ) -> None:
         if not weights_path.exists() or not mapping_path.exists():
             raise FileNotFoundError("AI Hub weights or label mapping does not exist")
 
         self.device = torch.device(device)
+        self.rotation_tta = rotation_tta
         self.class_names = load_aihub_class_names(mapping_path)
         self.product_master = load_aihub_product_master(
             mapping_path.parent,
@@ -74,12 +81,8 @@ class AIHubPillClassifier:
         if not crops_rgb:
             return []
 
-        batch = torch.stack(
-            [self.transform(Image.fromarray(crop).convert("RGB")) for crop in crops_rgb]
-        ).to(self.device)
-        with torch.inference_mode():
-            probabilities = torch.softmax(self.model(batch), dim=1)
-            values, indices = torch.topk(probabilities, min(top_k, probabilities.shape[1]), dim=1)
+        probabilities = self._predict_probabilities(crops_rgb)
+        values, indices = torch.topk(probabilities, min(top_k, probabilities.shape[1]), dim=1)
 
         predictions = []
         for row_indices, row_values in zip(indices.tolist(), values.tolist()):
@@ -108,6 +111,29 @@ class AIHubPillClassifier:
                 )
             predictions.append(row_candidates)
         return predictions
+
+    def _predict_probabilities(self, crops_rgb: list[np.ndarray]) -> torch.Tensor:
+        rotations = (0, 1, 2, 3) if self.rotation_tta else (0,)
+        probability_sum = None
+        for rotation in rotations:
+            batch = torch.stack(
+                [
+                    self.transform(
+                        Image.fromarray(rotate_crop(crop, rotation)).convert("RGB")
+                    )
+                    for crop in crops_rgb
+                ]
+            ).to(self.device)
+            with torch.inference_mode():
+                probabilities = torch.softmax(self.model(batch), dim=1)
+            probability_sum = probabilities if probability_sum is None else probability_sum + probabilities
+        return probability_sum / len(rotations)
+
+
+def rotate_crop(crop_rgb: np.ndarray, rotation: int) -> np.ndarray:
+    if rotation == 0:
+        return np.ascontiguousarray(crop_rgb)
+    return np.ascontiguousarray(np.rot90(crop_rgb, k=rotation))
 
 
 def load_aihub_product_master(

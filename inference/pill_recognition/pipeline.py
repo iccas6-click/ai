@@ -30,6 +30,7 @@ class PillRecognitionPipeline:
             self.settings.aihub_weights,
             self.settings.aihub_mapping,
             self.settings.device,
+            self.settings.aihub_rotation_tta,
         )
 
     def _load_optional_classifier(self) -> EfficientNetPillClassifier | None:
