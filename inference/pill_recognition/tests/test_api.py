@@ -98,6 +98,8 @@ def test_health_returns_runtime_policy(monkeypatch):
     assert response.json()["recognizer"] == "retrieval"
     assert response.json()["top_k"] == 3
     assert response.json()["max_batch_crops"] == 12
+    assert response.json()["max_upload_bytes"] == 10 * 1024 * 1024
+    assert response.json()["max_image_pixels"] == 12_000_000
 
 
 def test_recognize_accepts_uploaded_image():
@@ -186,6 +188,40 @@ def test_recognize_rejects_non_image_file():
     )
 
     assert response.status_code == 400
+
+
+def test_recognize_rejects_oversized_upload(monkeypatch):
+    monkeypatch.setattr(
+        "pill_recognition.api.get_settings",
+        lambda: Settings(max_upload_bytes=5),
+    )
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.post(
+        "/recognize",
+        files={"file": ("large.jpg", image_bytes(16, 12), "image/jpeg")},
+    )
+
+    assert response.status_code == 400
+    assert "too large" in response.json()["detail"]
+
+
+def test_recognize_rejects_image_with_too_many_pixels(monkeypatch):
+    monkeypatch.setattr(
+        "pill_recognition.api.get_settings",
+        lambda: Settings(max_image_pixels=100),
+    )
+    app = create_app(lambda: FakePipeline())
+    client = TestClient(app)
+
+    response = client.post(
+        "/recognize",
+        files={"file": ("too-many-pixels.jpg", image_bytes(16, 12), "image/jpeg")},
+    )
+
+    assert response.status_code == 400
+    assert "too many pixels" in response.json()["detail"]
 
 
 def test_product_search_returns_aihub_metadata_matches():

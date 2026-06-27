@@ -54,6 +54,8 @@ def create_app(
             "recognizer": settings.recognizer,
             "top_k": settings.top_k,
             "max_batch_crops": settings.max_batch_crops,
+            "max_upload_bytes": settings.max_upload_bytes,
+            "max_image_pixels": settings.max_image_pixels,
         }
 
     @app.post("/recognize")
@@ -347,11 +349,31 @@ def combined_match_reason(*parts: str | None) -> str:
 
 
 async def read_upload_image(file: UploadFile) -> np.ndarray:
+    settings = get_settings()
     payload = await file.read()
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    if len(payload) > settings.max_upload_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Uploaded image is too large: got {len(payload)} bytes, "
+                f"max {settings.max_upload_bytes}."
+            ),
+        )
     try:
-        image = Image.open(io.BytesIO(payload)).convert("RGB")
+        image = Image.open(io.BytesIO(payload))
+        width, height = image.size
+        pixels = width * height
+        if pixels > settings.max_image_pixels:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Uploaded image has too many pixels: got {pixels}, "
+                    f"max {settings.max_image_pixels}."
+                ),
+            )
+        image = image.convert("RGB")
     except (UnidentifiedImageError, OSError) as error:
         raise HTTPException(status_code=400, detail="Uploaded file is not a valid image.") from error
     return np.asarray(image)
