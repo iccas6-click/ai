@@ -72,15 +72,18 @@ def format_candidates(candidates) -> str:
 
 def format_candidate_identity(candidate) -> str:
     parts = [candidate.class_name]
-    for value in (
-        candidate.product_name,
-        candidate.company,
-        candidate.item_seq,
-        candidate.etc_otc_code,
-    ):
+    if candidate.product_name:
+        parts.append(candidate.product_name)
+    if candidate.ingredient:
+        parts.append(f"성분: {format_ingredient(candidate.ingredient)}")
+    for value in (candidate.company, candidate.item_seq, candidate.etc_otc_code):
         if value:
-            parts.append(value)
+            parts.append(str(value))
     return " | ".join(parts)
+
+
+def format_ingredient(value: str) -> str:
+    return ", ".join(part.strip() for part in str(value).split("|") if part.strip())
 
 
 def load_detector_eval_summary(run_name: str = DEFAULT_DETECTOR_EVALUATION) -> dict:
@@ -157,7 +160,7 @@ def build_app() -> gr.Blocks:
                     "번호",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "AI Hub Top-3 제품 후보",
+                    "AI Hub Top-3 제품/성분 후보",
                     "GitHub CNN 옵션",
                     "상태",
                 ],
