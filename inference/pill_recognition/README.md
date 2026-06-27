@@ -126,6 +126,26 @@ python -m pill_recognition.evaluate_pipeline_dataset \
 export PILL_RETRIEVAL_METADATA_RERANK=1
 ```
 
+## Query crop 전처리 실험
+
+RTMDet crop에 배경이 섞이는 실제 촬영 상황을 대비해 retrieval 직전 crop을 전경 중심으로 다시 자르는 실험 옵션을 제공합니다.
+
+```bash
+export PILL_RETRIEVAL_QUERY_PREPROCESS=foreground
+# or
+export PILL_RETRIEVAL_QUERY_PREPROCESS=foreground_dark
+```
+
+현재 운영 기본값은 `none`입니다. AIHub held-out crop 1000클래스 x 2장 smoke 기준으로 전경 재합성은 오히려 성능을 낮췄습니다.
+
+| Query preprocess | Top-1 | Top-3 | Top-5 | 판단 |
+|---|---:|---:|---:|---|
+| `none` | 0.8150 | 0.9500 | 0.9795 | 기본값 유지 |
+| `foreground` | 0.8060 | 0.9420 | 0.9725 | 기본값 제외 |
+| `foreground_dark` | 0.2685 | 0.4165 | 0.4995 | 기본값 제외 |
+
+이 결과는 “전경 분리 자체가 항상 좋다”가 아니라, AIHub ResNet152가 학습/평가된 crop 분포에 민감하다는 의미입니다. 실제 스마트폰 검증셋이 쌓이면 이 옵션을 다시 A/B 평가합니다.
+
 ## Foundation embedding 비교 실험
 
 AI Hub ResNet retrieval보다 나은 reference search encoder가 있는지 비교하기 위한 DINOv2 실험 스크립트입니다. 기본 앱 경로에는 연결하지 않고, 같은 AIHub held-out crop 평가셋으로 먼저 비교합니다.

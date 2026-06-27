@@ -15,6 +15,7 @@ from pill_recognition_legacy.aihub_classifier import (
     rotate_crop,
 )
 
+from .query_preprocess import preprocess_query_crop
 from .schemas import ProductCandidate
 from .settings import Settings
 from .visual_features import CropVisualFeatures, estimate_crop_visual_features
@@ -36,6 +37,7 @@ class AIHubResNetRetriever:
         device: str,
         rotation_tta: bool = True,
         metadata_rerank: bool = False,
+        query_preprocess: str = "none",
     ) -> None:
         if not weights_path.exists() or not mapping_path.exists():
             raise FileNotFoundError("AI Hub weights or mapping does not exist")
@@ -47,6 +49,7 @@ class AIHubResNetRetriever:
         self.device = torch.device(device)
         self.rotation_tta = rotation_tta
         self.metadata_rerank = metadata_rerank
+        self.query_preprocess = query_preprocess
         self.class_names = load_aihub_class_names(mapping_path)
         self.product_master = load_aihub_product_master(
             mapping_path.parent,
@@ -80,6 +83,7 @@ class AIHubResNetRetriever:
             settings.retrieval_index,
             settings.device,
             metadata_rerank=settings.retrieval_metadata_rerank,
+            query_preprocess=settings.retrieval_query_preprocess,
         )
 
     def predict_batch(
@@ -140,6 +144,10 @@ class AIHubResNetRetriever:
 
     def embed_crops(self, crops_rgb: list[np.ndarray]) -> torch.Tensor:
         rotations = (0, 1, 2, 3) if self.rotation_tta else (0,)
+        preprocessed_crops = [
+            preprocess_query_crop(crop, self.query_preprocess)
+            for crop in crops_rgb
+        ]
         embedding_sum = None
         for rotation in rotations:
             batch = torch.stack(
@@ -147,7 +155,7 @@ class AIHubResNetRetriever:
                     self.transform(
                         Image.fromarray(rotate_crop(crop, rotation)).convert("RGB")
                     )
-                    for crop in crops_rgb
+                    for crop in preprocessed_crops
                 ]
             ).to(self.device)
             with torch.inference_mode():

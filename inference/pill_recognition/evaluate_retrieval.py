@@ -69,6 +69,7 @@ def main() -> None:
         "top5": top5 / total if total else 0,
         "samples_per_class": args.samples_per_class,
         "offset": args.offset,
+        "retrieval_query_preprocess": settings.retrieval_query_preprocess,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if args.output:

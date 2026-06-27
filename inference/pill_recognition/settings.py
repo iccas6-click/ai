@@ -25,6 +25,7 @@ class Settings:
     aihub_mapping: Path | None = None
     retrieval_index: Path = PROJECT_ROOT / "artifacts" / "retrieval" / "aihub_resnet_index.pt"
     retrieval_metadata_rerank: bool = False
+    retrieval_query_preprocess: str = "none"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -103,6 +104,10 @@ class Settings:
                 os.getenv("PILL_RETRIEVAL_METADATA_RERANK"),
                 default=False,
             ),
+            retrieval_query_preprocess=os.getenv(
+                "PILL_RETRIEVAL_QUERY_PREPROCESS",
+                "none",
+            ).strip().lower(),
         )
 
 

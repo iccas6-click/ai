@@ -102,8 +102,9 @@ flowchart TD
 | 이미지 1장 최대 픽셀 수 | 12MP | `PILL_MAX_IMAGE_PIXELS` |
 | 후보 최소 점수 | 70 | `PILL_CANDIDATE_MIN_SCORE` |
 | 모호성 margin | 3 | `PILL_CANDIDATE_AMBIGUITY_MARGIN` |
+| retrieval query 전처리 | `none` | `PILL_RETRIEVAL_QUERY_PREPROCESS` |
 
-`GET /health`는 현재 `recognizer`, `top_k`, `max_batch_crops`, `max_upload_bytes`, `max_image_pixels`를 반환합니다. 프론트는 앱 시작 시 이 값을 읽어 업로드 UI 제한과 촬영 후 리사이즈 정책에 반영할 수 있습니다.
+`GET /health`는 현재 `recognizer`, `top_k`, `max_batch_crops`, `max_upload_bytes`, `max_image_pixels`, `retrieval_query_preprocess`를 반환합니다. 프론트는 앱 시작 시 이 값을 읽어 업로드 UI 제한과 촬영 후 리사이즈 정책에 반영할 수 있습니다.
 
 ## Capture Quality Warnings
 

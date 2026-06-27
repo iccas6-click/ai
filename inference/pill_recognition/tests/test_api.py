@@ -100,6 +100,7 @@ def test_health_returns_runtime_policy(monkeypatch):
     assert response.json()["max_batch_crops"] == 12
     assert response.json()["max_upload_bytes"] == 10 * 1024 * 1024
     assert response.json()["max_image_pixels"] == 12_000_000
+    assert response.json()["retrieval_query_preprocess"] == "none"
 
 
 def test_recognize_accepts_uploaded_image():

@@ -56,6 +56,7 @@ def create_app(
             "max_batch_crops": settings.max_batch_crops,
             "max_upload_bytes": settings.max_upload_bytes,
             "max_image_pixels": settings.max_image_pixels,
+            "retrieval_query_preprocess": settings.retrieval_query_preprocess,
         }
 
     @app.post("/recognize")
