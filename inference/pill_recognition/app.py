@@ -7,6 +7,7 @@ import numpy as np
 
 from .pipeline import PillRecognitionPipeline
 from .product_db import ProductSearchQuery, load_product_index, search_products
+from .scope import parse_allowed_pill_ids
 from .settings import Settings
 from .visualization import draw_detections
 
@@ -26,11 +27,12 @@ def get_product_index() -> dict:
     return load_product_index(get_settings().aihub_mapping)
 
 
-def recognize(image: np.ndarray | None):
+def recognize(image: np.ndarray | None, allowed_pill_ids_text: str = ""):
     if image is None:
         return None, [], {"error": "이미지를 업로드해 주세요."}
 
-    result = get_pipeline().recognize(image)
+    allowed_pill_ids = parse_allowed_pill_ids(allowed_pill_ids_text)
+    result = get_pipeline().recognize(image, allowed_pill_ids=allowed_pill_ids)
     annotated = draw_detections(image, result)
     rows = []
     for detection in result.detections:
@@ -123,6 +125,10 @@ def build_app() -> gr.Blocks:
             with gr.Row():
                 source = gr.Image(type="numpy", label="여러 알약 사진")
                 annotated = gr.Image(type="numpy", label="탐지 결과")
+            allowed_pill_ids_input = gr.Textbox(
+                label="복약목록 K-ID scope",
+                placeholder='예: ["K-000059","K-000069"] 또는 K-000059,K-000069',
+            )
             run_button = gr.Button("알약 후보 찾기", variant="primary")
             table = gr.Dataframe(
                 headers=[
@@ -138,7 +144,7 @@ def build_app() -> gr.Blocks:
             raw_result = gr.JSON(label="전체 결과")
             run_button.click(
                 fn=recognize,
-                inputs=source,
+                inputs=[source, allowed_pill_ids_input],
                 outputs=[annotated, table, raw_result],
             )
 

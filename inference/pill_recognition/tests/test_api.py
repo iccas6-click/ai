@@ -7,7 +7,6 @@ from PIL import Image
 from pill_recognition.api import (
     create_app,
     detect_image_media_type,
-    parse_allowed_pill_ids,
 )
 from pill_recognition.schemas import (
     PillDetection,
@@ -16,6 +15,7 @@ from pill_recognition.schemas import (
     VisionObservation,
 )
 from pill_recognition.settings import Settings
+from pill_recognition.scope import parse_allowed_pill_ids
 from pill_recognition_legacy.aihub_classifier import AIHubProductInfo
 
 
