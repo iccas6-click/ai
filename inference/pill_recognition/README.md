@@ -139,6 +139,16 @@ annotation 포맷은 `real_eval_schema.example.json`을 따릅니다. `class_nam
 }
 ```
 
+이미지만 먼저 넣어둔 상태라면 detector와 retrieval 결과로 annotation 초안을 만들 수 있습니다.
+
+```bash
+python -m pill_recognition.draft_real_annotations \
+  --dataset-root ../datasets/evaluation/real-smartphone \
+  --top-k 5
+```
+
+초안의 `class_name`, `product_name`, `bbox_xyxy`는 반드시 사람이 확인해야 합니다. `candidate_hints`에는 현재 pipeline의 후보가 들어가며, 맞는 후보가 없으면 AIHub 제품 DB 검색 탭이나 원본 AIHub K-ID 목록으로 확인합니다.
+
 평가:
 
 ```bash
