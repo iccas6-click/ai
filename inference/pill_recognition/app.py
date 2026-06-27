@@ -8,7 +8,8 @@ import gradio as gr
 import numpy as np
 
 from .pipeline import PillRecognitionPipeline
-from .settings import PROJECT_ROOT
+from .product_search import ProductSearchQuery, load_product_index, search_products
+from .settings import PROJECT_ROOT, Settings
 from .visualization import draw_detections
 
 
@@ -29,6 +30,11 @@ DEFAULT_DETECTOR_EVALUATION = "AIHub realistic max10 val 1000"
 @lru_cache(maxsize=1)
 def get_pipeline() -> PillRecognitionPipeline:
     return PillRecognitionPipeline()
+
+
+@lru_cache(maxsize=1)
+def get_product_index() -> dict:
+    return load_product_index(Settings.from_env().aihub_mapping)
 
 
 def recognize(image: np.ndarray | None):
@@ -54,6 +60,41 @@ def recognize(image: np.ndarray | None):
             ]
         )
     return annotated, rows, result.to_dict()
+
+
+def search_product_db(imprint: str, shape: str, color: str, text: str):
+    query = ProductSearchQuery(
+        imprint=imprint or "",
+        shape=shape or "",
+        color=color or "",
+        text=text or "",
+        limit=30,
+    )
+    results = search_products(get_product_index(), query)
+    rows = [
+        [
+            row.get("score"),
+            row.get("pill_id"),
+            row.get("product_name") or "-",
+            format_ingredient(row.get("ingredient") or ""),
+            row.get("print_front") or "-",
+            row.get("print_back") or "-",
+            row.get("drug_shape") or "-",
+            joined_colors(row),
+            row.get("company") or "-",
+            row.get("item_seq") or "-",
+            row.get("etc_otc_code") or "-",
+            row.get("matched") or "-",
+        ]
+        for row in results
+    ]
+    return rows, results
+
+
+def joined_colors(row: dict) -> str:
+    colors = [row.get("color_class1"), row.get("color_class2")]
+    colors = [color for color in colors if color]
+    return "/".join(colors) if colors else "-"
 
 
 def format_bbox(bbox: tuple[int, int, int, int]) -> str:
@@ -171,6 +212,66 @@ def build_app() -> gr.Blocks:
                 fn=recognize,
                 inputs=source,
                 outputs=[annotated, table, raw_result],
+            )
+
+        with gr.Tab("제품 DB 검색"):
+            gr.Markdown(
+                "# AI Hub 1000종 제품 DB 검색\n"
+                "사진 분류가 흔들릴 때 각인, 색, 모양, 제품명/성분 일부를 입력해 후보를 좁힙니다."
+            )
+            with gr.Row():
+                imprint_input = gr.Textbox(label="각인 문자", placeholder="예: CKD, 500, AC")
+                shape_input = gr.Dropdown(
+                    choices=["", "원형", "타원형", "장방형", "반원형", "삼각형", "사각형", "기타"],
+                    value="",
+                    label="모양",
+                )
+                color_input = gr.Dropdown(
+                    choices=[
+                        "",
+                        "하양",
+                        "노랑",
+                        "주황",
+                        "분홍",
+                        "빨강",
+                        "갈색",
+                        "초록",
+                        "파랑",
+                        "보라",
+                        "회색",
+                        "검정",
+                        "투명",
+                    ],
+                    value="",
+                    label="색",
+                )
+            text_input = gr.Textbox(
+                label="제품명/성분/업체/품목기준코드",
+                placeholder="예: 메트포르민, 트윈스타, 201005083",
+            )
+            search_button = gr.Button("DB 후보 검색", variant="primary")
+            search_table = gr.Dataframe(
+                headers=[
+                    "점수",
+                    "K-ID",
+                    "제품명",
+                    "성분",
+                    "앞면 각인",
+                    "뒷면 각인",
+                    "모양",
+                    "색",
+                    "업체",
+                    "품목기준코드",
+                    "일반/전문",
+                    "매칭 근거",
+                ],
+                interactive=False,
+            )
+            search_json = gr.JSON(label="검색 raw 결과")
+            search_button.click(
+                fn=search_product_db,
+                inputs=[imprint_input, shape_input, color_input, text_input],
+                outputs=[search_table, search_json],
             )
 
         with gr.Tab("RTMDet 평가"):

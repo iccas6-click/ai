@@ -63,6 +63,12 @@ def test_load_aihub_product_master_reads_product_metadata(tmp_path):
                         "dl_material": "건조수산화알루미늄 겔|침강탄산칼슘",
                         "chart": "흰색의 원형정제",
                         "img_key": "http://example.com/drug.jpg",
+                        "print_front": "S분할선N",
+                        "print_back": "200",
+                        "drug_shape": "원형",
+                        "color_class1": "하양",
+                        "color_class2": "노랑",
+                        "form_code_name": "나정",
                     }
                 ]
             }
@@ -76,6 +82,13 @@ def test_load_aihub_product_master_reads_product_metadata(tmp_path):
     assert products["K-000001"].company == "삼남제약(주)"
     assert products["K-000001"].item_seq == "196400046"
     assert products["K-000001"].etc_otc_code == "일반의약품"
+    assert products["K-000001"].ingredient == "건조수산화알루미늄 겔|침강탄산칼슘"
+    assert products["K-000001"].print_front == "S분할선N"
+    assert products["K-000001"].print_back == "200"
+    assert products["K-000001"].drug_shape == "원형"
+    assert products["K-000001"].color_class1 == "하양"
+    assert products["K-000001"].color_class2 == "노랑"
+    assert products["K-000001"].form_code_name == "나정"
 
 
 def test_rotate_crop_returns_contiguous_rotated_array():

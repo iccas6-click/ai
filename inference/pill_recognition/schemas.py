@@ -18,6 +18,12 @@ class Candidate:
     ingredient: str | None = None
     chart: str | None = None
     image_url: str | None = None
+    print_front: str | None = None
+    print_back: str | None = None
+    drug_shape: str | None = None
+    color_class1: str | None = None
+    color_class2: str | None = None
+    form_code_name: str | None = None
 
 
 @dataclass

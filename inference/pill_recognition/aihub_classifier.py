@@ -22,6 +22,12 @@ class AIHubProductInfo:
     ingredient: str | None = None
     chart: str | None = None
     image_url: str | None = None
+    print_front: str | None = None
+    print_back: str | None = None
+    drug_shape: str | None = None
+    color_class1: str | None = None
+    color_class2: str | None = None
+    form_code_name: str | None = None
 
 
 class AIHubPillClassifier:
@@ -107,6 +113,12 @@ class AIHubPillClassifier:
                         ingredient=product.ingredient if product else None,
                         chart=product.chart if product else None,
                         image_url=product.image_url if product else None,
+                        print_front=product.print_front if product else None,
+                        print_back=product.print_back if product else None,
+                        drug_shape=product.drug_shape if product else None,
+                        color_class1=product.color_class1 if product else None,
+                        color_class2=product.color_class2 if product else None,
+                        form_code_name=product.form_code_name if product else None,
                     )
                 )
             predictions.append(row_candidates)
@@ -168,6 +180,12 @@ def load_aihub_product_master(
             ingredient=clean_text(row.get("dl_material")),
             chart=clean_text(row.get("chart")),
             image_url=clean_text(row.get("img_key")),
+            print_front=clean_text(row.get("print_front")),
+            print_back=clean_text(row.get("print_back")),
+            drug_shape=clean_text(row.get("drug_shape")),
+            color_class1=clean_text(row.get("color_class1")),
+            color_class2=clean_text(row.get("color_class2")),
+            form_code_name=clean_text(row.get("form_code_name")),
         )
     return products
 
