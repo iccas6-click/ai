@@ -47,7 +47,7 @@ curl -X POST http://127.0.0.1:8001/recognize \
   -F "file=@sample.jpg"
 ```
 
-응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 `quality`, `detector`, `recognition`, `postprocess`, `total` 단계별 latency가 포함됩니다.
+응답은 `RecognitionResult.to_dict()`와 같은 JSON이며, 알약별 `vision.color`, `vision.shape`, `candidates`, `status`, `status_reason`을 포함합니다. `warnings`에는 낮은 해상도, 어두움, 과노출, 낮은 대비, 흔들림처럼 재촬영이 필요한 입력 품질 문제가 포함됩니다. `timings_ms`에는 파이프라인 내부 `quality`, `detector`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total` latency가 포함됩니다.
 
 선택한 알약 crop 단독 인식 API:
 
@@ -70,7 +70,7 @@ curl -X POST http://127.0.0.1:8001/crops/recognize-batch \
 
 crop batch 응답의 `warnings`는 `crop 1`, `crop 2`처럼 crop 번호를 포함합니다. 프론트는 해당 crop만 다시 찍도록 안내할 수 있습니다.
 
-crop batch의 `timings_ms`는 `preprocess`, `recognition`, `postprocess`, `total`을 반환합니다. 여러 crop은 한 번의 retrieval batch로 처리되므로 앱에서는 crop을 따로 여러 번 호출하지 말고 batch endpoint를 우선 사용합니다.
+crop batch의 `timings_ms`는 파이프라인 내부 `preprocess`, `recognition`, `postprocess`, `total`과 API 레벨 `upload_decode`, `pipeline_get`, `pipeline_call`, `api_total`을 반환합니다. 여러 crop은 한 번의 retrieval batch로 처리되므로 앱에서는 crop을 따로 여러 번 호출하지 말고 batch endpoint를 우선 사용합니다.
 
 각인/색/모양/텍스트 보정 검색 API:
 

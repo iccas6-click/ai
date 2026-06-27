@@ -118,7 +118,7 @@ def test_recognize_accepts_uploaded_image():
     assert payload["detections"][0]["status"] == "needs_confirmation"
     assert payload["detections"][0]["status_reason"] == "review required"
     assert payload["detections"][0]["candidates"][0]["pill_id"] == "K-000001"
-    assert payload["timings_ms"] == {}
+    assert_api_timings(payload["timings_ms"])
 
 
 def test_recognize_crop_accepts_uploaded_single_pill_crop():
@@ -136,6 +136,7 @@ def test_recognize_crop_accepts_uploaded_single_pill_crop():
     assert payload["pill_count"] == 1
     assert payload["detections"][0]["bbox"] == [1, 2, 10, 11]
     assert payload["detections"][0]["candidates"][0]["product_name"] == "테스트정"
+    assert_api_timings(payload["timings_ms"])
 
 
 def test_recognize_crop_batch_accepts_multiple_uploaded_crops():
@@ -158,6 +159,7 @@ def test_recognize_crop_batch_accepts_multiple_uploaded_crops():
         "K-000001",
         "K-000002",
     ]
+    assert_api_timings(payload["timings_ms"])
 
 
 def test_recognize_crop_batch_rejects_too_many_files(monkeypatch):
@@ -461,3 +463,13 @@ def image_bytes(width: int, height: int) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG")
     return buffer.getvalue()
+
+
+def assert_api_timings(timings: dict) -> None:
+    assert set(timings) == {
+        "upload_decode",
+        "pipeline_get",
+        "pipeline_call",
+        "api_total",
+    }
+    assert timings["api_total"] >= timings["pipeline_call"]

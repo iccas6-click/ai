@@ -124,6 +124,6 @@ flowchart TD
 - 흰색 원형정처럼 비슷한 제품이 많은 경우 각인 입력 또는 반대면 촬영을 우선 요청합니다.
 - 후보가 좋아 보여도 단일 후보만 표시하지 말고 항상 Top-3와 성분을 함께 보여줍니다.
 - `ingredient`가 `|`로 구분된 복합 성분이면 프론트에서 쉼표로 나눠 표시합니다.
-- API 응답의 `timings_ms.total`은 사용자 체감 latency, `timings_ms.detector`와 `timings_ms.recognition`은 백엔드 병목 판단 지표로 로깅합니다.
+- API 응답의 `timings_ms.api_total`은 사용자 체감 latency, `timings_ms.pipeline_get`은 lazy model/index 로딩, `timings_ms.detector`와 `timings_ms.recognition`은 백엔드 병목 판단 지표로 로깅합니다.
 - 실제 스마트폰 검증셋 평가는 `analysis.recognition_top3_misses`, `analysis.detector_misses`, `analysis.warning_images`를 우선 확인해 모델 문제와 촬영 문제를 분리합니다.
 - 본 파이프라인은 제품 후보 제공까지 담당하며, 복약 가능 여부나 상호작용 판정은 별도 서비스에서 처리합니다.

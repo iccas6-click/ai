@@ -4,6 +4,7 @@ import argparse
 import io
 from dataclasses import asdict
 from functools import lru_cache
+from time import perf_counter
 from typing import Callable
 
 import numpy as np
@@ -61,22 +62,64 @@ def create_app(
 
     @app.post("/recognize")
     async def recognize(file: UploadFile = File(...)):
+        request_start = perf_counter()
+        decode_start = perf_counter()
         image_rgb = await read_upload_image(file)
-        result = pipeline_factory().recognize(image_rgb)
+        decode_ms = elapsed_ms(decode_start)
+        pipeline_get_start = perf_counter()
+        pipeline = pipeline_factory()
+        pipeline_get_ms = elapsed_ms(pipeline_get_start)
+        pipeline_call_start = perf_counter()
+        result = pipeline.recognize(image_rgb)
+        attach_api_timings(
+            result,
+            request_start=request_start,
+            upload_decode_ms=decode_ms,
+            pipeline_get_ms=pipeline_get_ms,
+            pipeline_call_ms=elapsed_ms(pipeline_call_start),
+        )
         return result.to_dict()
 
     @app.post("/crops/recognize")
     async def recognize_crop(file: UploadFile = File(...)):
+        request_start = perf_counter()
+        decode_start = perf_counter()
         crop_rgb = await read_upload_image(file)
-        result = pipeline_factory().recognize_crop(crop_rgb)
+        decode_ms = elapsed_ms(decode_start)
+        pipeline_get_start = perf_counter()
+        pipeline = pipeline_factory()
+        pipeline_get_ms = elapsed_ms(pipeline_get_start)
+        pipeline_call_start = perf_counter()
+        result = pipeline.recognize_crop(crop_rgb)
+        attach_api_timings(
+            result,
+            request_start=request_start,
+            upload_decode_ms=decode_ms,
+            pipeline_get_ms=pipeline_get_ms,
+            pipeline_call_ms=elapsed_ms(pipeline_call_start),
+        )
         return result.to_dict()
 
     @app.post("/crops/recognize-batch")
     async def recognize_crops_batch(files: list[UploadFile] = File(...)):
+        request_start = perf_counter()
         settings = get_settings()
         validate_crop_batch_size(files, settings.max_batch_crops)
+        decode_start = perf_counter()
         crops_rgb = [await read_upload_image(file) for file in files]
-        result = pipeline_factory().recognize_crops_batch(crops_rgb)
+        decode_ms = elapsed_ms(decode_start)
+        pipeline_get_start = perf_counter()
+        pipeline = pipeline_factory()
+        pipeline_get_ms = elapsed_ms(pipeline_get_start)
+        pipeline_call_start = perf_counter()
+        result = pipeline.recognize_crops_batch(crops_rgb)
+        attach_api_timings(
+            result,
+            request_start=request_start,
+            upload_decode_ms=decode_ms,
+            pipeline_get_ms=pipeline_get_ms,
+            pipeline_call_ms=elapsed_ms(pipeline_call_start),
+        )
         return result.to_dict()
 
     @app.get("/products/search")
@@ -191,6 +234,27 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def attach_api_timings(
+    result,
+    request_start: float,
+    upload_decode_ms: float,
+    pipeline_get_ms: float,
+    pipeline_call_ms: float,
+) -> None:
+    result.timings_ms.update(
+        {
+            "upload_decode": upload_decode_ms,
+            "pipeline_get": pipeline_get_ms,
+            "pipeline_call": pipeline_call_ms,
+            "api_total": elapsed_ms(request_start),
+        }
+    )
+
+
+def elapsed_ms(start: float) -> float:
+    return round((perf_counter() - start) * 1000.0, 3)
 
 
 def validate_crop_batch_size(files: list[UploadFile], max_batch_crops: int) -> None:
