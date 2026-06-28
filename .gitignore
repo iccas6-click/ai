@@ -1,0 +1,18 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 테스트 이미지
+supplement_recognition/data/samples/
+supplement_recognition/data/mfds_cache/
+
+# 업로드 임시 파일
+/tmp/supplement_uploads/
