@@ -3,6 +3,10 @@
 artifacts/
 outputs/
 inference/logs/
+pill_recognition/inference/logs/
+logs/
+*.log
+*.exit
 official_code/
 aihub_official_code/
 datasets/*
