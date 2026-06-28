@@ -16,6 +16,7 @@ from .scope import parse_allowed_pill_ids
 from .settings import Settings
 from .visualization import draw_detections
 from pill_recognition_legacy.aihub_classifier import AIHubPillClassifier
+from pill_recognition_legacy.postprocess import bbox_iou
 from pill_recognition_legacy.schemas import Candidate
 
 
@@ -62,19 +63,7 @@ def recognize(image: np.ndarray | None, allowed_pill_ids_text: str = ""):
     allowed_pill_ids = parse_allowed_pill_ids(allowed_pill_ids_text)
     result = get_pipeline().recognize(image, allowed_pill_ids=allowed_pill_ids)
     annotated = draw_detections(image, result)
-    rows = []
-    for detection in result.detections:
-        rows.append(
-            [
-                detection.pill_id,
-                format_bbox(detection.bbox),
-                f"{detection.detector_confidence:.3f}",
-                format_candidates(detection.candidates),
-                detection.status,
-                detection.status_reason or "-",
-            ]
-        )
-    return annotated, rows, result.to_dict()
+    return annotated, prediction_rows(result.detections), result.to_dict()
 
 
 def search_product_db(imprint: str, shape: str, color: str, text: str):
@@ -313,24 +302,181 @@ def recognize_multi_pill_sample(
 ):
     image, ground_truth, sample_info = load_multi_pill_sample(dataset_name, selection)
     if image is None:
-        return None, ground_truth, [], sample_info, sample_info
-    annotated, prediction_rows, raw_result = recognize(image, allowed_pill_ids_text)
-    return annotated, ground_truth, prediction_rows, raw_result, sample_info
+        return None, ground_truth, [], [], sample_info, sample_info, sample_info
+
+    allowed_pill_ids = parse_allowed_pill_ids(allowed_pill_ids_text)
+    result = get_pipeline().recognize(image, allowed_pill_ids=allowed_pill_ids)
+    annotated = draw_detections(image, result)
+    sample_path = resolve_multi_pill_sample_path(dataset_name, selection)
+    metadata = load_multi_pill_metadata(dataset_name, sample_path.stem)
+    match_summary, match_rows = compare_ground_truth_and_predictions(metadata, result)
+    return (
+        annotated,
+        ground_truth,
+        prediction_rows(result.detections),
+        match_rows,
+        match_summary,
+        result.to_dict(),
+        sample_info,
+    )
 
 
 def multi_pill_ground_truth_rows(metadata: dict) -> list[list]:
     rows = []
     for pill in metadata.get("pills", []) or []:
+        product = get_product_index().get(str(pill.get("class_name")))
         rows.append(
             [
-                pill.get("pill_id"),
-                pill.get("class_name"),
                 pill.get("product_name") or "-",
+                format_ingredient(getattr(product, "ingredient", None) or "") or "-",
+                pill.get("class_name"),
+                pill.get("pill_id"),
                 pill.get("company") or "-",
                 format_bbox(tuple(pill.get("bbox_xyxy", [0, 0, 0, 0]))),
             ]
         )
     return rows
+
+
+def prediction_rows(detections) -> list[list]:
+    rows = []
+    for detection in detections:
+        top = detection.candidates[0] if detection.candidates else None
+        rows.append(
+            [
+                detection.pill_id,
+                top.product_name if top and top.product_name else "-",
+                format_ingredient(top.ingredient or "" if top else "") or "-",
+                top.pill_id if top else "-",
+                format_candidates(detection.candidates),
+                format_bbox(detection.bbox),
+                f"{detection.detector_confidence:.3f}",
+                top.score if top else "-",
+                detection.status,
+                detection.status_reason or "-",
+            ]
+        )
+    return rows
+
+
+def compare_ground_truth_and_predictions(metadata: dict, result, iou_threshold: float = 0.5):
+    ground_truth = metadata.get("pills", []) or []
+    detections = result.detections
+    pairs = []
+    for gt_index, pill in enumerate(ground_truth):
+        gt_bbox = tuple(pill.get("bbox_xyxy", [0, 0, 0, 0]))
+        for pred_index, detection in enumerate(detections):
+            pairs.append(
+                (
+                    bbox_iou(gt_bbox, detection.bbox),
+                    gt_index,
+                    pred_index,
+                )
+            )
+
+    matches = []
+    used_gt = set()
+    used_pred = set()
+    for iou, gt_index, pred_index in sorted(pairs, reverse=True):
+        if iou < iou_threshold or gt_index in used_gt or pred_index in used_pred:
+            continue
+        matches.append((gt_index, pred_index, iou))
+        used_gt.add(gt_index)
+        used_pred.add(pred_index)
+
+    rows = []
+    top1_count = 0
+    top3_count = 0
+    top5_count = 0
+    for gt_index, pred_index, iou in sorted(matches):
+        pill = ground_truth[gt_index]
+        detection = detections[pred_index]
+        expected = str(pill.get("class_name") or "")
+        predicted_ids = [candidate.pill_id for candidate in detection.candidates]
+        top = detection.candidates[0] if detection.candidates else None
+        top1_hit = predicted_ids[:1] == [expected]
+        top3_hit = expected in predicted_ids[:3]
+        top5_hit = expected in predicted_ids[:5]
+        top1_count += int(top1_hit)
+        top3_count += int(top3_hit)
+        top5_count += int(top5_hit)
+        rows.append(
+            [
+                gt_index + 1,
+                pred_index + 1,
+                pill.get("product_name") or "-",
+                expected or "-",
+                top.product_name if top and top.product_name else "-",
+                format_ingredient(top.ingredient or "" if top else "") or "-",
+                top.pill_id if top else "-",
+                "O" if top1_hit else "X",
+                "O" if top3_hit else "X",
+                round(float(iou), 4),
+                format_candidates(detection.candidates),
+            ]
+        )
+
+    for gt_index, pill in enumerate(ground_truth):
+        if gt_index in used_gt:
+            continue
+        rows.append(
+            [
+                gt_index + 1,
+                "-",
+                pill.get("product_name") or "-",
+                pill.get("class_name") or "-",
+                "미탐지",
+                "-",
+                "-",
+                "X",
+                "X",
+                0,
+                "-",
+            ]
+        )
+
+    for pred_index, detection in enumerate(detections):
+        if pred_index in used_pred:
+            continue
+        top = detection.candidates[0] if detection.candidates else None
+        rows.append(
+            [
+                "-",
+                pred_index + 1,
+                "정답 없음",
+                "-",
+                top.product_name if top and top.product_name else "-",
+                format_ingredient(top.ingredient or "" if top else "") or "-",
+                top.pill_id if top else "-",
+                "X",
+                "X",
+                0,
+                format_candidates(detection.candidates),
+            ]
+        )
+
+    gt_count = len(ground_truth)
+    pred_count = len(detections)
+    matched_count = len(matches)
+    summary = {
+        "gt_count": gt_count,
+        "prediction_count": pred_count,
+        "count_match": gt_count == pred_count,
+        "bbox_matched_count": matched_count,
+        "false_negative_count": gt_count - matched_count,
+        "false_positive_count": pred_count - matched_count,
+        "iou_threshold": iou_threshold,
+        "top1_match_count": top1_count,
+        "top3_match_count": top3_count,
+        "top5_match_count": top5_count,
+        "top1_rate_on_matched": safe_rate(top1_count, matched_count),
+        "top3_rate_on_matched": safe_rate(top3_count, matched_count),
+        "top5_rate_on_matched": safe_rate(top5_count, matched_count),
+        "end_to_end_top1_rate_on_gt": safe_rate(top1_count, gt_count),
+        "end_to_end_top3_rate_on_gt": safe_rate(top3_count, gt_count),
+        "end_to_end_top5_rate_on_gt": safe_rate(top5_count, gt_count),
+    }
+    return summary, rows
 
 
 def product_rows(results: list[dict]) -> list[list]:
@@ -430,10 +576,9 @@ def format_candidates(candidates) -> str:
     if not candidates:
         return "-"
     return "\n".join(
-        f"{candidate.rank}. 제품명: {candidate.product_name or '-'} | "
-        f"성분: {format_ingredient(candidate.ingredient or '') or '-'} | "
-        f"주의: {format_cautions(candidate.caution_points)} | "
-        f"점수 {candidate.score}"
+        f"{candidate.rank}. {candidate.product_name or '-'} | "
+        f"{format_ingredient(candidate.ingredient or '') or '-'} | "
+        f"K-ID {candidate.pill_id} | 점수 {candidate.score}"
         for candidate in candidates
     )
 
@@ -471,9 +616,13 @@ def build_app() -> gr.Blocks:
             table = gr.Dataframe(
                 headers=[
                     "번호",
+                    "제품명(Top1)",
+                    "성분(Top1)",
+                    "K-ID(Top1)",
+                    "후보 Top-K",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "제품명/성분 후보",
+                    "점수(Top1)",
                     "상태",
                     "상태 이유",
                 ],
@@ -574,20 +723,42 @@ def build_app() -> gr.Blocks:
                 load_sample_button = gr.Button("샘플 보기")
                 run_sample_button = gr.Button("이 샘플 인식", variant="primary")
             ground_truth_table = gr.Dataframe(
-                headers=["번호", "정답 K-ID", "제품명", "업체", "정답 BBox"],
+                headers=["제품명", "성분", "정답 K-ID", "번호", "업체", "정답 BBox"],
                 label="합성셋 정답",
                 interactive=False,
             )
             prediction_table = gr.Dataframe(
                 headers=[
                     "번호",
+                    "제품명(Top1)",
+                    "성분(Top1)",
+                    "K-ID(Top1)",
+                    "후보 Top-K",
                     "BBox x1,y1,x2,y2",
                     "탐지 confidence",
-                    "제품명/성분 후보",
+                    "점수(Top1)",
                     "상태",
                     "상태 이유",
                 ],
                 label="모델 예측",
+                interactive=False,
+            )
+            match_summary = gr.JSON(label="GT-예측 개수/일치 요약")
+            match_table = gr.Dataframe(
+                headers=[
+                    "정답 번호",
+                    "예측 번호",
+                    "정답 제품명",
+                    "정답 K-ID",
+                    "예측 제품명(Top1)",
+                    "예측 성분(Top1)",
+                    "예측 K-ID(Top1)",
+                    "Top1 일치",
+                    "Top3 일치",
+                    "BBox IoU",
+                    "후보 Top-K",
+                ],
+                label="GT-예측 매칭 상세",
                 interactive=False,
             )
             sample_info = gr.JSON(label="샘플 정보")
@@ -609,6 +780,8 @@ def build_app() -> gr.Blocks:
                     dataset_annotated,
                     ground_truth_table,
                     prediction_table,
+                    match_table,
+                    match_summary,
                     sample_result,
                     sample_info,
                 ],
