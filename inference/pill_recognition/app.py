@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from functools import lru_cache
+import os
 from pathlib import Path
 
 import gradio as gr
@@ -518,4 +519,7 @@ def warmup() -> None:
 
 if __name__ == "__main__":
     warmup()
-    build_app().launch(server_name="127.0.0.1", server_port=7860)
+    build_app().launch(
+        server_name=os.getenv("PILL_GRADIO_HOST", "127.0.0.1"),
+        server_port=int(os.getenv("PILL_GRADIO_PORT", "7860")),
+    )
