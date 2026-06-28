@@ -22,6 +22,7 @@ from pill_recognition_legacy.schemas import Candidate
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MULTI_PILL_DATASET = "rtmdet-aihub-synthetic-realistic-max10-v2"
 PREFERRED_MULTI_PILL_DATASETS = [
+    "rtmdet-aihub-synthetic-realistic-clean-v3",
     "rtmdet-aihub-synthetic-realistic-clean-v3-pilot",
     "rtmdet-aihub-synthetic-realistic-max10-v2",
 ]
