@@ -169,7 +169,12 @@ def extract_split_features(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     image_dir = dataset_root / "images" / split
     metadata_dir = dataset_root / "metadata" / split
-    image_paths = sorted(path for path in image_dir.glob("*.jpg") if path.is_file())
+    image_paths = sorted(
+        path
+        for pattern in ("*.jpg", "*.jpeg", "*.png", "*.webp")
+        for path in image_dir.glob(pattern)
+        if path.is_file()
+    )
     if limit_images is not None:
         image_paths = image_paths[:limit_images]
 
