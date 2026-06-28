@@ -36,13 +36,13 @@ AIHub 공식 모델 자체의 1,000-class softmax를 직접 쓰려면 `PILL_RECO
 서비스 기본 응답은 알약별 제품 후보 Top-3입니다. 후보가 없으면 `no_candidate`, 점수가 낮으면 `low_confidence`, 1·2위 후보가 붙어 있으면 `ambiguous`, 그 외에는 `needs_confirmation`으로 반환합니다. 모든 상태는 최종 복용 전 사용자 확인이 필요하다는 전제를 유지합니다.
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
 source ../.venv/bin/activate
 python -m pill_recognition.build_retrieval_index --samples-per-class 32 --index-mode prototype
 ```
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
 source ../.venv/bin/activate
 python -m pill_recognition.app
 ```
@@ -50,7 +50,7 @@ python -m pill_recognition.app
 AIHub 공식 classifier 경로:
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
 source ../.venv/bin/activate
 export PILL_RECOGNIZER=aihub_classifier
 export PILL_AIHUB_CLASSIFIER_QUERY_PREPROCESS=grabcut_dark
@@ -60,7 +60,7 @@ python -m pill_recognition.app
 백엔드 연동용 HTTP API:
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
 source ../.venv/bin/activate
 python -m pill_recognition.api --host 0.0.0.0 --port 8001
 ```
@@ -339,11 +339,11 @@ PILL_DEVICE=cuda:0 python -m pill_recognition.fine_tune_synthetic_classifier \
 
 ```bash
 export PILL_RECOGNIZER=aihub_classifier
-export PILL_AIHUB_WEIGHTS=/home/gyu/pill/code/ai/inference/artifacts/classifier/aihub-resnet152-synthetic-layer4-none-v2-continued.pt
+export PILL_AIHUB_WEIGHTS=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/classifier/aihub-resnet152-synthetic-layer4-none-v2-continued.pt
 export PILL_AIHUB_CLASSIFIER_QUERY_PREPROCESS=none
 export PILL_CROP_PADDING_RATIO=0
-export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
-export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml
+export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
+export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/pill.yaml
 ```
 
 `rtmdet-aihub-synthetic-realistic-max10-v2` val 전체 1,000장 end-to-end 기준:

@@ -179,8 +179,8 @@ inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
 기본 `model.pth`는 아직 교체하지 않습니다. 합성 validation 성능은 detector 학습 sanity check로는 충분하지만, 실제 스마트폰 사진 검증셋에서 count recall/false positive를 확인한 뒤 default로 승격합니다. 후보 모델을 테스트할 때는 환경변수로 명시합니다.
 
 ```bash
-export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
-export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml
+export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
+export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/pill.yaml
 ```
 
 실제 스마트폰 detector 검증셋이 준비되면 기존 default와 v2 후보를 같은 이미지/라벨로 각각 평가한 뒤 비교합니다.
@@ -195,8 +195,8 @@ python -m pill_recognition_legacy.evaluate_detector \
   --annotated-limit 30
 
 # v2 candidate detector
-PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth \
-PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml \
+PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth \
+PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/pill_recognition/inference/artifacts/rtmdet-single-class/pill.yaml \
 python -m pill_recognition_legacy.evaluate_detector \
   --images ../datasets/evaluation/real-smartphone-yolo/images \
   --labels ../datasets/evaluation/real-smartphone-yolo/labels \

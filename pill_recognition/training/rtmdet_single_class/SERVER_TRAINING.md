@@ -57,7 +57,7 @@ bash training/rtmdet_single_class/scripts/run_training.sh --resume
 
 ```bash
 rsync -avP USER@SERVER:~/ai/training/runs/rtmdet-single-class/best_*.pth \
-  /home/gyuha_lee/pill/code/ai/training/runs/rtmdet-single-class/
+  /home/gyuha_lee/pill/code/ai/pill_recognition/training/runs/rtmdet-single-class/
 ```
 
 서버에서 Gradio를 실행한다면 외부 포트를 열지 않고 SSH 터널을 사용합니다.

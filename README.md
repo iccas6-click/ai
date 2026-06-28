@@ -8,21 +8,21 @@ CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 
 
 ```text
 ai/
-├── .venv/                    # 저장소 전용 Python 3.11 환경, Git 제외
-├── datasets/                 # 로컬 학습·평가 데이터, 내용 Git 제외
-├── training/                 # 학습 설정과 데이터 변환·평가 스크립트
-├── requirements/             # 런타임·학습 의존성
-├── inference/                # 학습과 분리된 추론 서비스
-│   ├── artifacts/            # 추론 모델 가중치, Git 제외
-│   ├── aihub_official_code/  # AI Hub 공식 배포 파일, Git 제외
-│   ├── outputs/              # 추론 결과, Git 제외
-│   ├── pill_recognition/     # v2: RTMDet + AI Hub ResNet retrieval/classifier
-│   ├── pill_recognition_legacy/ # v1: RTMDet + ResNet/EfficientNet baseline 보존
-│   └── supplement_recognition/
+├── pill_recognition/          # 의약품 및 알약 인식 파이프라인
+│   ├── datasets/              # 로컬 학습·평가 데이터, 내용 Git 제외
+│   ├── training/              # 학습 설정과 데이터 변환·평가 스크립트
+│   ├── requirements/          # 런타임·학습 의존성
+│   └── inference/             # 학습과 분리된 추론 서비스
+│       ├── artifacts/         # 추론 모델 가중치, Git 제외
+│       ├── aihub_official_code/ # AI Hub 공식 배포 파일, Git 제외
+│       ├── outputs/           # 추론 결과, Git 제외
+│       ├── pill_recognition/  # v2: RTMDet + AI Hub ResNet retrieval/classifier
+│       └── pill_recognition_legacy/ # v1 baseline 보존
+├── supplement_recognition/    # 건강기능식품 라벨 인식 파이프라인
 └── README.md
 ```
 
-학습 데이터의 구체적인 배치 규칙은 [`datasets/README.md`](./datasets/README.md), RTMDet 단일 클래스 학습 흐름은 [`training/rtmdet_single_class/README.md`](./training/rtmdet_single_class/README.md)를 따릅니다.
+학습 데이터의 구체적인 배치 규칙은 [`pill_recognition/datasets/README.md`](./pill_recognition/datasets/README.md), RTMDet 단일 클래스 학습 흐름은 [`pill_recognition/training/rtmdet_single_class/README.md`](./pill_recognition/training/rtmdet_single_class/README.md)를 따릅니다.
 
 ## 현재 구현 상태
 
@@ -36,14 +36,14 @@ ai/
 - Gradio 데모와 FastAPI `/recognize` endpoint 제공
 - Gemini는 기본 경로에서 제외하고, 비교/실험용 provider로만 유지
 
-기존 v1 baseline은 `inference/pill_recognition_legacy/`에 보존되어 있습니다.
+기존 v1 baseline은 `pill_recognition/inference/pill_recognition_legacy/`에 보존되어 있습니다.
 
-실행 방법과 환경 구성은 [`inference/pill_recognition/README.md`](./inference/pill_recognition/README.md)를 참고합니다.
-앱 연동용 호출 순서와 status별 사용자 흐름은 [`inference/pill_recognition/SERVICE_FLOW.md`](./inference/pill_recognition/SERVICE_FLOW.md)에 정리합니다.
+실행 방법과 환경 구성은 [`pill_recognition/inference/pill_recognition/README.md`](./pill_recognition/inference/pill_recognition/README.md)를 참고합니다.
+앱 연동용 호출 순서와 status별 사용자 흐름은 [`pill_recognition/inference/pill_recognition/SERVICE_FLOW.md`](./pill_recognition/inference/pill_recognition/SERVICE_FLOW.md)에 정리합니다.
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
-source ../.venv/bin/activate
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
+source ../../.venv/bin/activate
 python -m pill_recognition.app
 ```
 
@@ -72,7 +72,7 @@ flowchart LR
 
 ## 의약품 인식 파이프라인
 
-위치: [`inference/pill_recognition/`](./inference/pill_recognition/)
+위치: [`pill_recognition/inference/pill_recognition/`](./pill_recognition/inference/pill_recognition/)
 
 ### 입력
 
@@ -154,7 +154,7 @@ flowchart TD
 
 ## 건강기능식품 인식 파이프라인
 
-위치: [`inference/supplement_recognition/`](./inference/supplement_recognition/)
+위치: [`supplement_recognition/`](./supplement_recognition/)
 
 ### 입력
 

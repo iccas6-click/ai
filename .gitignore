@@ -17,6 +17,18 @@ datasets/evaluation/real-smartphone/annotations/*
 !datasets/evaluation/real-smartphone/images/
 datasets/evaluation/real-smartphone/images/*
 !datasets/evaluation/real-smartphone/images/.gitkeep
+pill_recognition/datasets/*
+!pill_recognition/datasets/.gitignore
+!pill_recognition/datasets/README.md
+!pill_recognition/datasets/evaluation/
+!pill_recognition/datasets/evaluation/real-smartphone/
+!pill_recognition/datasets/evaluation/real-smartphone/README.md
+!pill_recognition/datasets/evaluation/real-smartphone/annotations/
+pill_recognition/datasets/evaluation/real-smartphone/annotations/*
+!pill_recognition/datasets/evaluation/real-smartphone/annotations/.gitkeep
+!pill_recognition/datasets/evaluation/real-smartphone/images/
+pill_recognition/datasets/evaluation/real-smartphone/images/*
+!pill_recognition/datasets/evaluation/real-smartphone/images/.gitkeep
 
 __pycache__/
 *.py[cod]

@@ -37,7 +37,7 @@ uv pip install --python .venv/bin/python 'mmcv==2.1.0' \
 AI Hub class01 가중치와 라벨 JSON이 기본 경로에 있으면 1,000종 분류기도 자동으로 활성화됩니다.
 
 ```bash
-cd /home/gyuha_lee/pill/code/ai/inference
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
 source ../.venv/bin/activate
 python -m pill_recognition_legacy.app
 ```
