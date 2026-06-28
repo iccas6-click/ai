@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from functools import lru_cache
+import json
 import os
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from .settings import Settings
 from .visualization import draw_detections
 from pill_recognition_legacy.aihub_classifier import AIHubPillClassifier
 from pill_recognition_legacy.schemas import Candidate
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MULTI_PILL_DATASET = "rtmdet-aihub-synthetic-realistic-max10-v2"
 
 
 @lru_cache(maxsize=1)
@@ -197,6 +202,91 @@ def evaluate_aihub_classifier_dataset(
         "top3_count": top3,
         "top5_count": top5,
     }, misses
+
+
+@lru_cache(maxsize=1)
+def multi_pill_sample_choices() -> list[str]:
+    image_dir = multi_pill_dataset_root() / "images" / "val"
+    if not image_dir.is_dir():
+        return []
+    choices = []
+    for image_path in sorted(image_dir.iterdir()):
+        if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            continue
+        metadata = load_multi_pill_metadata(image_path.stem)
+        pill_count = metadata.get("pill_count")
+        pills = metadata.get("pills") or []
+        names = ", ".join(
+            str(pill.get("product_name") or pill.get("class_name") or "-")
+            for pill in pills[:3]
+        )
+        suffix = f"{pill_count}알" if pill_count else "?알"
+        if len(pills) > 3:
+            names = f"{names} 외 {len(pills) - 3}개"
+        choices.append(f"{image_path.stem} | {suffix} | {names}")
+    return choices
+
+
+def multi_pill_dataset_root() -> Path:
+    return REPO_ROOT / "datasets" / "processed" / DEFAULT_MULTI_PILL_DATASET
+
+
+def load_multi_pill_metadata(sample_stem: str) -> dict:
+    metadata_path = multi_pill_dataset_root() / "metadata" / "val" / f"{sample_stem}.json"
+    if not metadata_path.exists():
+        return {}
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+
+def resolve_multi_pill_sample_path(selection: str) -> Path:
+    sample_stem = (selection or "").split("|", 1)[0].strip()
+    image_dir = multi_pill_dataset_root() / "images" / "val"
+    for suffix in [".jpg", ".jpeg", ".png", ".webp"]:
+        image_path = image_dir / f"{sample_stem}{suffix}"
+        if image_path.exists():
+            return image_path
+    raise FileNotFoundError(f"Multi-pill sample not found: {sample_stem}")
+
+
+def load_multi_pill_sample(selection: str):
+    if not selection:
+        return None, [], {"error": "샘플을 선택해 주세요."}
+    image_path = resolve_multi_pill_sample_path(selection)
+    metadata = load_multi_pill_metadata(image_path.stem)
+    image = np.asarray(Image.open(image_path).convert("RGB"))
+    return image, multi_pill_ground_truth_rows(metadata), {
+        "dataset": DEFAULT_MULTI_PILL_DATASET,
+        "image_path": str(image_path),
+        "metadata_path": str(
+            multi_pill_dataset_root() / "metadata" / "val" / f"{image_path.stem}.json"
+        ),
+        "pill_count": metadata.get("pill_count"),
+        "background": metadata.get("background"),
+        "ground_truth": metadata.get("pills", []),
+    }
+
+
+def recognize_multi_pill_sample(selection: str, allowed_pill_ids_text: str = ""):
+    image, ground_truth, sample_info = load_multi_pill_sample(selection)
+    if image is None:
+        return None, ground_truth, [], sample_info, sample_info
+    annotated, prediction_rows, raw_result = recognize(image, allowed_pill_ids_text)
+    return annotated, ground_truth, prediction_rows, raw_result, sample_info
+
+
+def multi_pill_ground_truth_rows(metadata: dict) -> list[list]:
+    rows = []
+    for pill in metadata.get("pills", []) or []:
+        rows.append(
+            [
+                pill.get("pill_id"),
+                pill.get("class_name"),
+                pill.get("product_name") or "-",
+                pill.get("company") or "-",
+                format_bbox(tuple(pill.get("bbox_xyxy", [0, 0, 0, 0]))),
+            ]
+        )
+    return rows
 
 
 def product_rows(results: list[dict]) -> list[list]:
@@ -407,6 +497,64 @@ def build_app() -> gr.Blocks:
                 fn=search_product_db,
                 inputs=[imprint_input, shape_input, color_input, text_input],
                 outputs=[search_table, search_json],
+            )
+
+        with gr.Tab("멀티알약 테스트셋"):
+            gr.Markdown(
+                "# 멀티알약 테스트셋\n"
+                f"`{DEFAULT_MULTI_PILL_DATASET}` val 이미지를 서버에서 직접 불러와 인식합니다."
+            )
+            sample_choices = multi_pill_sample_choices()
+            sample_selector = gr.Dropdown(
+                choices=sample_choices,
+                value=sample_choices[0] if sample_choices else None,
+                label="테스트 이미지 선택",
+                interactive=True,
+            )
+            with gr.Row():
+                dataset_source = gr.Image(type="numpy", label="선택한 테스트 이미지")
+                dataset_annotated = gr.Image(type="numpy", label="탐지/인식 결과")
+            dataset_allowed_scope = gr.Textbox(
+                label="복약목록 K-ID scope",
+                placeholder='비워두면 1000종 전체에서 후보를 냅니다. 예: ["K-004378","K-001732"]',
+            )
+            with gr.Row():
+                load_sample_button = gr.Button("샘플 보기")
+                run_sample_button = gr.Button("이 샘플 인식", variant="primary")
+            ground_truth_table = gr.Dataframe(
+                headers=["번호", "정답 K-ID", "제품명", "업체", "정답 BBox"],
+                label="합성셋 정답",
+                interactive=False,
+            )
+            prediction_table = gr.Dataframe(
+                headers=[
+                    "번호",
+                    "BBox x1,y1,x2,y2",
+                    "탐지 confidence",
+                    "제품명/성분 후보",
+                    "상태",
+                    "상태 이유",
+                ],
+                label="모델 예측",
+                interactive=False,
+            )
+            sample_info = gr.JSON(label="샘플 정보")
+            sample_result = gr.JSON(label="전체 인식 결과")
+            load_sample_button.click(
+                fn=load_multi_pill_sample,
+                inputs=[sample_selector],
+                outputs=[dataset_source, ground_truth_table, sample_info],
+            )
+            run_sample_button.click(
+                fn=recognize_multi_pill_sample,
+                inputs=[sample_selector, dataset_allowed_scope],
+                outputs=[
+                    dataset_annotated,
+                    ground_truth_table,
+                    prediction_table,
+                    sample_result,
+                    sample_info,
+                ],
             )
 
         with gr.Tab("AIHub 공식 모델 검증"):
