@@ -1,13 +1,12 @@
 # Pill Recognition v2
 
-RTMDet 탐지와 AI Hub 공식 ResNet152 feature retrieval을 사용하는 알약 인식 파이프라인입니다.
+RTMDet 탐지와 AI Hub 공식 ResNet152 recognition을 사용하는 알약 인식 파이프라인입니다.
 
 ```text
 image
 -> RTMDet single-class detector
 -> crop per pill
--> AI Hub ResNet152 feature embedding
--> cosine search against AI Hub 1000-class reference prototypes
+-> AI Hub ResNet152 feature retrieval or official 1000-class classifier
 -> optional metadata rerank using estimated color/shape
 -> Top-3 product candidates with ingredients and review status
 ```
@@ -19,10 +18,10 @@ image
 
 ## Production 방향
 
-실서비스 기본 경로는 외부 멀티모달 LLM 호출이 아니라 로컬 GPU 기반 retrieval입니다.
+실서비스 기본 경로는 외부 멀티모달 LLM 호출이 아니라 로컬 GPU 기반 recognition입니다.
 
 - RTMDet는 제품명을 맞히지 않고 알약 위치만 찾습니다.
-- 제품 인식은 crop을 AIHub ResNet152 embedding으로 변환한 뒤 reference index에서 Top-K 검색합니다.
+- 제품 인식은 crop을 AIHub ResNet152 embedding retrieval 또는 AIHub 공식 1,000-class classifier로 처리합니다.
 - 응답은 단일 정답이 아니라 항상 제품 후보 Top-3, 성분, reference image, 확인 status를 반환합니다.
 - Gemini 같은 외부 비전 LLM은 latency, 비용, 출력 변동성 때문에 기본 경로에서 제외합니다.
 - 낮은 신뢰도, 비슷한 후보, 흐림/반사/겹침은 사용자 확인, 반대면 crop, 각인 입력, 수동 검색으로 넘깁니다.
@@ -32,6 +31,7 @@ image
 ## 실행
 
 기본값은 외부 API 없이 실행되는 retrieval recognizer입니다. 실행 전 AI Hub reference index를 한 번 생성해야 합니다.
+AIHub 공식 모델 자체의 1,000-class softmax를 직접 쓰려면 `PILL_RECOGNIZER=aihub_classifier`를 사용합니다.
 
 서비스 기본 응답은 알약별 제품 후보 Top-3입니다. 후보가 없으면 `no_candidate`, 점수가 낮으면 `low_confidence`, 1·2위 후보가 붙어 있으면 `ambiguous`, 그 외에는 `needs_confirmation`으로 반환합니다. 모든 상태는 최종 복용 전 사용자 확인이 필요하다는 전제를 유지합니다.
 
@@ -44,6 +44,16 @@ python -m pill_recognition.build_retrieval_index --samples-per-class 32 --index-
 ```bash
 cd /home/gyuha_lee/pill/code/ai/inference
 source ../.venv/bin/activate
+python -m pill_recognition.app
+```
+
+AIHub 공식 classifier 경로:
+
+```bash
+cd /home/gyuha_lee/pill/code/ai/inference
+source ../.venv/bin/activate
+export PILL_RECOGNIZER=aihub_classifier
+export PILL_AIHUB_CLASSIFIER_QUERY_PREPROCESS=grabcut_dark
 python -m pill_recognition.app
 ```
 
@@ -293,6 +303,19 @@ export PILL_RETRIEVAL_QUERY_PREPROCESS=multi_foreground
 |---|---:|---:|---:|---:|
 | `none` | 0.981321 | 0.030641 | 0.029783 | 108.499ms |
 | `multi_foreground` | 0.981321 | 0.034355 | 0.033394 | 162.887ms |
+
+AIHub 공식 1,000-class classifier를 직접 쓰는 `PILL_RECOGNIZER=aihub_classifier` 경로는 retrieval index를 거치지 않고 softmax 후보를 반환합니다. 이 경로에서도 RTMDet crop을 그대로 넣으면 합성 배경과 색 분포 때문에 누락이 많아서, crop을 어두운 AIHub crop 분포에 가깝게 만드는 `grabcut_dark` adapter를 추가했습니다.
+
+서버 synthetic realistic v2 val 200장 기준:
+
+| Recognizer | Query preprocess | Detector F1 | Recognition Top-3 on matched | End-to-end Top-3 on GT | Mean total |
+|---|---|---:|---:|---:|---:|
+| retrieval | `none` | 0.981321 | 0.030641 | 0.029783 | 108.499ms |
+| aihub_classifier | `multi_foreground` | 0.981321 | 0.030641 | 0.029783 | 163.162ms |
+| aihub_classifier | `multi_grabcut` | 0.981321 | 0.098422 | 0.095668 | 771.293ms |
+| aihub_classifier | `grabcut_dark` | 0.981321 | 0.134633 | 0.130866 | 740.371ms |
+
+이 결과는 detector 문제가 아니라 crop 분포 문제가 크다는 뜻입니다. AIHub 원본 crop 검증에서는 공식 classifier가 높게 맞고, RTMDet synthetic scene crop에서는 배경/tint를 걷어내야 성능이 올라갑니다. 단, synthetic scene 자체가 실제 스마트폰 사진과 다르므로 최종 판단은 실제 촬영 검증셋으로 별도 확인해야 합니다.
 
 ## Foundation embedding 비교 실험
 

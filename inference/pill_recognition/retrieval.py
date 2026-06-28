@@ -207,6 +207,8 @@ def query_preprocess_modes(mode: str) -> list[str]:
         "multi": ["none", "foreground"],
         "multi_foreground": ["none", "foreground"],
         "multi_foreground_dark": ["none", "foreground", "foreground_dark"],
+        "multi_grabcut": ["none", "grabcut_dark"],
+        "multi_grabcut_dark": ["none", "grabcut_dark"],
     }
     if normalized in aliases:
         return aliases[normalized]

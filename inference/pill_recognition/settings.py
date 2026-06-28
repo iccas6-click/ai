@@ -27,6 +27,7 @@ class Settings:
     retrieval_index: Path = PROJECT_ROOT / "artifacts" / "retrieval" / "aihub_resnet_index.pt"
     retrieval_metadata_rerank: bool = False
     retrieval_query_preprocess: str = "none"
+    aihub_classifier_query_preprocess: str = "multi_grabcut"
     warmup_on_startup: bool = True
 
     @classmethod
@@ -113,6 +114,10 @@ class Settings:
             retrieval_query_preprocess=os.getenv(
                 "PILL_RETRIEVAL_QUERY_PREPROCESS",
                 "none",
+            ).strip().lower(),
+            aihub_classifier_query_preprocess=os.getenv(
+                "PILL_AIHUB_CLASSIFIER_QUERY_PREPROCESS",
+                "multi_grabcut",
             ).strip().lower(),
             warmup_on_startup=parse_bool(
                 os.getenv("PILL_WARMUP_ON_STARTUP"),

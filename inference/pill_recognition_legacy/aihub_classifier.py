@@ -44,6 +44,9 @@ class AIHubPillClassifier:
         self.device = torch.device(device)
         self.rotation_tta = rotation_tta
         self.class_names = load_aihub_class_names(mapping_path)
+        self.class_ids_by_name = {
+            class_name: class_id for class_id, class_name in self.class_names.items()
+        }
         self.product_master = load_aihub_product_master(
             mapping_path.parent,
             set(self.class_names.values()),
@@ -83,11 +86,15 @@ class AIHubPillClassifier:
         self,
         crops_rgb: list[np.ndarray],
         top_k: int = 3,
+        allowed_pill_ids: set[str] | None = None,
     ) -> list[list[Candidate]]:
         if not crops_rgb:
             return []
 
+        allowed = {str(pill_id).strip() for pill_id in allowed_pill_ids or set()}
+        allowed = {pill_id for pill_id in allowed if pill_id}
         probabilities = self._predict_probabilities(crops_rgb)
+        probabilities = self._scope_probabilities(probabilities, allowed)
         values, indices = torch.topk(probabilities, min(top_k, probabilities.shape[1]), dim=1)
 
         predictions = []
@@ -98,6 +105,8 @@ class AIHubPillClassifier:
                 start=1,
             ):
                 pill_id = self.class_names[class_id]
+                if allowed and pill_id not in allowed:
+                    continue
                 product = self.product_master.get(pill_id)
                 row_candidates.append(
                     Candidate(
@@ -123,6 +132,34 @@ class AIHubPillClassifier:
                 )
             predictions.append(row_candidates)
         return predictions
+
+    def _scope_probabilities(
+        self,
+        probabilities: torch.Tensor,
+        allowed_pill_ids: set[str] | None,
+    ) -> torch.Tensor:
+        allowed = {str(pill_id).strip() for pill_id in allowed_pill_ids or set()}
+        allowed = {pill_id for pill_id in allowed if pill_id}
+        if not allowed:
+            return probabilities
+
+        class_ids = [
+            self.class_ids_by_name[pill_id]
+            for pill_id in sorted(allowed)
+            if pill_id in self.class_ids_by_name
+        ]
+        if not class_ids:
+            return probabilities.new_zeros(probabilities.shape)
+
+        scoped = probabilities.new_zeros(probabilities.shape)
+        class_id_tensor = torch.tensor(
+            class_ids,
+            dtype=torch.long,
+            device=probabilities.device,
+        )
+        scoped[:, class_id_tensor] = probabilities[:, class_id_tensor]
+        row_sum = scoped.sum(dim=1, keepdim=True).clamp_min(1e-12)
+        return scoped / row_sum
 
     def _predict_probabilities(self, crops_rgb: list[np.ndarray]) -> torch.Tensor:
         rotations = (0, 1, 2, 3) if self.rotation_tta else (0,)

@@ -69,7 +69,7 @@ def create_app(
         return {
             "status": "ok",
             "recognizer": settings.recognizer,
-            "recognition_policy": "rtmdet_single_class_detector + aihub_resnet_retrieval_top_k",
+            "recognition_policy": recognition_policy(settings),
             "external_vision_default": False,
             "experimental_gemini_enabled": settings.allow_gemini_recognizer,
             "top_k": settings.top_k,
@@ -77,6 +77,7 @@ def create_app(
             "max_upload_bytes": settings.max_upload_bytes,
             "max_image_pixels": settings.max_image_pixels,
             "retrieval_query_preprocess": settings.retrieval_query_preprocess,
+            "aihub_classifier_query_preprocess": settings.aihub_classifier_query_preprocess,
             "warmup": app.state.warmup,
         }
 
@@ -364,6 +365,17 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def recognition_policy(settings: Settings) -> str:
+    if settings.recognizer == "aihub_classifier":
+        return (
+            "rtmdet_single_class_detector + "
+            "aihub_official_resnet152_classifier_top_k"
+        )
+    if settings.recognizer == "retrieval":
+        return "rtmdet_single_class_detector + aihub_resnet_retrieval_top_k"
+    return f"rtmdet_single_class_detector + {settings.recognizer}"
 
 
 def resolve_scope_request(product_index: dict, request: ProductScopeResolveRequest) -> dict:

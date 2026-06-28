@@ -1,6 +1,10 @@
 import numpy as np
 
-from pill_recognition.pipeline import PillRecognitionPipeline, determine_status
+from pill_recognition.pipeline import (
+    PillRecognitionPipeline,
+    determine_status,
+    recognize_crops_with_aihub_classifier,
+)
 from pill_recognition.schemas import (
     ProductCandidate,
     VisionObservation,
@@ -98,6 +102,52 @@ class EmptyRetriever:
         return [[] for _ in crops_rgb]
 
 
+class FakeAIHubClassifier:
+    model_version = "fake-aihub-classifier"
+    class_ids_by_name = {
+        "K-WRONG": 0,
+        "K-RIGHT": 1,
+        "K-SCOPED": 2,
+    }
+    allowed_pill_ids = None
+    calls = 0
+
+    def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
+        self.calls += 1
+        self.allowed_pill_ids = allowed_pill_ids
+        rows = []
+        for index, _ in enumerate(crops_rgb):
+            if index % 2 == 0:
+                rows.append(
+                    [
+                        Candidate(
+                            rank=1,
+                            class_id=0,
+                            class_name="K-WRONG",
+                            confidence=0.60,
+                            product_name="오답정",
+                        )
+                    ]
+                )
+            else:
+                rows.append(
+                    [
+                        Candidate(
+                            rank=1,
+                            class_id=1,
+                            class_name="K-RIGHT",
+                            confidence=0.92,
+                            product_name="정답정",
+                            ingredient="정답성분",
+                            print_front="R",
+                            drug_shape="원형",
+                            color_class1="하양",
+                        )
+                    ]
+                )
+        return rows
+
+
 class FailingVisionProvider:
     name = "failing-vision"
 
@@ -184,11 +234,11 @@ def test_pipeline_passes_allowed_pill_scope_to_retriever():
     assert result.candidate_scope == {
         "enabled": True,
         "allowed_count": 3,
+        "metadata_match_count": 0,
+        "unknown_metadata_pill_ids": ["K-000001", "K-000777", "K-MISSING"],
         "retrieval_id_match_count": 2,
         "retrieval_index_position_count": 3,
-        "metadata_match_count": 0,
         "unknown_retrieval_pill_ids": ["K-MISSING"],
-        "unknown_metadata_pill_ids": ["K-000001", "K-000777", "K-MISSING"],
     }
 
 
@@ -264,6 +314,58 @@ def test_pipeline_recognize_crops_batch_uses_single_retriever_call():
     ]
     assert retriever.calls == 1
     assert result.timings_ms["recognition"] >= 0
+
+
+def test_aihub_classifier_recognizer_merges_best_crop_variant():
+    classifier = FakeAIHubClassifier()
+
+    results = recognize_crops_with_aihub_classifier(
+        classifier,
+        [np.zeros((32, 48, 3), dtype=np.uint8) + 255],
+        top_k=1,
+        query_preprocess="none+foreground",
+        allowed_pill_ids={"K-RIGHT"},
+    )
+
+    assert classifier.calls == 1
+    assert classifier.allowed_pill_ids == {"K-RIGHT"}
+    assert results[0][0].pill_id == "K-RIGHT"
+    assert results[0][0].score == 92.0
+    assert results[0][0].source == "aihub_resnet152_classifier"
+    assert results[0][0].matched == "AIHub official ResNet152 classifier (foreground)"
+
+
+def test_pipeline_can_use_aihub_official_classifier_for_crop_recognition():
+    classifier = FakeAIHubClassifier()
+    pipeline = PillRecognitionPipeline(
+        settings=Settings(
+            top_k=1,
+            recognizer="aihub_classifier",
+            aihub_classifier_query_preprocess="none+foreground",
+        ),
+        detector=ExplodingDetector(),
+        aihub_classifier=classifier,
+        product_index={},
+    )
+
+    result = pipeline.recognize_crop(
+        np.zeros((32, 48, 3), dtype=np.uint8) + 255,
+        allowed_pill_ids={"K-RIGHT", "K-MISSING"},
+    )
+
+    assert result.model_version == (
+        "single-crop+fake-aihub-classifier:none+foreground"
+    )
+    assert result.detections[0].candidates[0].pill_id == "K-RIGHT"
+    assert result.detections[0].candidates[0].product_name == "정답정"
+    assert result.candidate_scope == {
+        "enabled": True,
+        "allowed_count": 2,
+        "metadata_match_count": 0,
+        "unknown_metadata_pill_ids": ["K-MISSING", "K-RIGHT"],
+        "classifier_id_match_count": 1,
+        "unknown_classifier_pill_ids": ["K-MISSING"],
+    }
 
 
 def test_pipeline_returns_capture_quality_warnings_for_bad_input():

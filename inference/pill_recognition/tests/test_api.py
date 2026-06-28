@@ -124,6 +124,7 @@ def test_health_returns_runtime_policy(monkeypatch):
     assert response.json()["max_upload_bytes"] == 10 * 1024 * 1024
     assert response.json()["max_image_pixels"] == 12_000_000
     assert response.json()["retrieval_query_preprocess"] == "none"
+    assert response.json()["aihub_classifier_query_preprocess"] == "multi_grabcut"
     assert response.json()["warmup"]["enabled"] is True
 
 

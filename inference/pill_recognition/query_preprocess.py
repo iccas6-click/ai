@@ -10,11 +10,15 @@ AIHUB_DARK_BACKGROUND = np.array([28, 8, 19], dtype=np.uint8)
 def preprocess_query_crop(crop_rgb: np.ndarray, mode: str = "none") -> np.ndarray:
     if mode in {"", "none", "off", "false", "0"}:
         return crop_rgb
-    if mode not in {"foreground_dark", "foreground"}:
+    if mode not in {"foreground_dark", "foreground", "grabcut_dark", "grabcut"}:
         raise ValueError(f"Unsupported retrieval query preprocess mode: {mode}")
 
     image = _as_rgb_uint8(crop_rgb)
-    mask = extract_pill_foreground_mask(image)
+    mask = (
+        extract_pill_grabcut_mask(image)
+        if mode in {"grabcut", "grabcut_dark"}
+        else extract_pill_foreground_mask(image)
+    )
     bbox = _mask_bbox(mask)
     if bbox is None:
         return image
@@ -25,9 +29,49 @@ def preprocess_query_crop(crop_rgb: np.ndarray, mode: str = "none") -> np.ndarra
     if patch.size == 0:
         return image
 
-    if mode == "foreground":
+    if mode in {"foreground", "grabcut"}:
         return _square_pad(patch, _border_median(image))
     return _composite_square(patch, alpha, AIHUB_DARK_BACKGROUND)
+
+
+def extract_pill_grabcut_mask(image_rgb: np.ndarray) -> np.ndarray:
+    image = _as_rgb_uint8(image_rgb)
+    height, width = image.shape[:2]
+    if height < 16 or width < 16:
+        return extract_pill_foreground_mask(image)
+
+    inset_x = max(2, round(width * 0.04))
+    inset_y = max(2, round(height * 0.04))
+    rect = (
+        inset_x,
+        inset_y,
+        max(1, width - (2 * inset_x)),
+        max(1, height - (2 * inset_y)),
+    )
+    mask = np.zeros((height, width), dtype=np.uint8)
+    bgd_model = np.zeros((1, 65), dtype=np.float64)
+    fgd_model = np.zeros((1, 65), dtype=np.float64)
+    try:
+        cv2.grabCut(
+            cv2.cvtColor(image, cv2.COLOR_RGB2BGR),
+            mask,
+            rect,
+            bgd_model,
+            fgd_model,
+            5,
+            cv2.GC_INIT_WITH_RECT,
+        )
+    except cv2.error:
+        return extract_pill_foreground_mask(image)
+
+    binary = np.where(
+        (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD),
+        255,
+        0,
+    ).astype(np.uint8)
+    if not 0.03 <= _mask_area_ratio(binary) <= 0.85:
+        return extract_pill_foreground_mask(image)
+    return _clean_centered_mask(binary)
 
 
 def extract_pill_foreground_mask(image_rgb: np.ndarray) -> np.ndarray:
@@ -63,6 +107,11 @@ def extract_pill_foreground_mask(image_rgb: np.ndarray) -> np.ndarray:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
+    return _clean_centered_mask(mask)
+
+
+def _clean_centered_mask(mask: np.ndarray) -> np.ndarray:
+    height, width = mask.shape[:2]
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
         return mask

@@ -13,6 +13,7 @@ from .product_db import (
     search_products,
 )
 from .retrieval import AIHubResNetRetriever
+from .retrieval import query_preprocess_modes
 from .schemas import (
     PillDetection,
     ProductCandidate,
@@ -21,8 +22,11 @@ from .schemas import (
     VisionProductCandidate,
 )
 from .settings import Settings
+from .query_preprocess import preprocess_query_crop
 from .vision_providers import create_vision_provider
 from .visual_features import estimate_crop_visual_features
+from pill_recognition_legacy.aihub_classifier import AIHubPillClassifier
+from pill_recognition_legacy.schemas import Candidate
 
 
 class PillRecognitionPipeline:
@@ -32,11 +36,13 @@ class PillRecognitionPipeline:
         detector=None,
         vision_provider=None,
         retriever=None,
+        aihub_classifier=None,
         product_index: dict | None = None,
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.detector = detector
         self.retriever = retriever or self._load_retriever()
+        self.aihub_classifier = aihub_classifier or self._load_aihub_classifier()
         self.vision_provider = vision_provider
         if self.settings.recognizer == "gemini" and self.vision_provider is None:
             self.vision_provider = create_vision_provider(self.settings)
@@ -63,6 +69,17 @@ class PillRecognitionPipeline:
         if self.settings.recognizer != "retrieval":
             return None
         return AIHubResNetRetriever.from_settings(self.settings)
+
+    def _load_aihub_classifier(self):
+        if self.settings.recognizer != "aihub_classifier":
+            return None
+        if self.settings.aihub_weights is None or self.settings.aihub_mapping is None:
+            raise FileNotFoundError("AI Hub classifier assets are not configured")
+        return AIHubPillClassifier(
+            self.settings.aihub_weights,
+            self.settings.aihub_mapping,
+            self.settings.device,
+        )
 
     def recognize(
         self,
@@ -147,11 +164,9 @@ class PillRecognitionPipeline:
 
         if not self.product_index:
             warnings.append("AI Hub product metadata is unavailable.")
-        if candidate_scope.get("enabled") and not candidate_scope.get(
-            "retrieval_id_match_count",
-        ):
+        if scope_has_no_recognition_match(candidate_scope):
             warnings.append(
-                "No allowed pill IDs are present in the retrieval index. "
+                "No allowed pill IDs are present in the active recognition index. "
                 "Check the user's medication K-ID mapping."
             )
         if not detections:
@@ -272,6 +287,17 @@ class PillRecognitionPipeline:
                 ),
                 [local_visual_observation(crop) for crop in crops],
             )
+        if self.settings.recognizer == "aihub_classifier":
+            return (
+                recognize_crops_with_aihub_classifier(
+                    self.aihub_classifier,
+                    crops,
+                    self.settings.top_k,
+                    query_preprocess=self.settings.aihub_classifier_query_preprocess,
+                    allowed_pill_ids=allowed_pill_ids,
+                ),
+                [local_visual_observation(crop) for crop in crops],
+            )
         observations = inspect_crops_safely(self.vision_provider, crops)
         return (
             [
@@ -284,6 +310,14 @@ class PillRecognitionPipeline:
     def _recognizer_version(self) -> str:
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
             return self.retriever.model_version
+        if (
+            self.settings.recognizer == "aihub_classifier"
+            and self.aihub_classifier is not None
+        ):
+            return (
+                f"{self.aihub_classifier.model_version}"
+                f":{self.settings.aihub_classifier_query_preprocess}"
+            )
         if self.vision_provider is not None:
             return f"{self.vision_provider.name}+gemini"
         return self.settings.recognizer
@@ -299,6 +333,17 @@ class PillRecognitionPipeline:
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
             dummy_crop = np.full((96, 96, 3), 240, dtype=np.uint8)
             self.retriever.predict_batch([dummy_crop], top_k=1)
+        if (
+            self.settings.recognizer == "aihub_classifier"
+            and self.aihub_classifier is not None
+        ):
+            dummy_crop = np.full((96, 96, 3), 240, dtype=np.uint8)
+            recognize_crops_with_aihub_classifier(
+                self.aihub_classifier,
+                [dummy_crop],
+                top_k=1,
+                query_preprocess=self.settings.aihub_classifier_query_preprocess,
+            )
 
     def candidate_scope_summary(self, allowed_pill_ids: set[str] | None) -> dict:
         allowed = {str(pill_id).strip() for pill_id in allowed_pill_ids or set()}
@@ -307,18 +352,33 @@ class PillRecognitionPipeline:
             return {}
 
         positions_by_id = getattr(self.retriever, "index_positions_by_pill_id", {}) or {}
+        class_ids_by_name = getattr(self.aihub_classifier, "class_ids_by_name", {}) or {}
         retrieval_matches = {pill_id for pill_id in allowed if pill_id in positions_by_id}
+        classifier_matches = {pill_id for pill_id in allowed if pill_id in class_ids_by_name}
         position_count = sum(len(positions_by_id[pill_id]) for pill_id in retrieval_matches)
         metadata_matches = {pill_id for pill_id in allowed if pill_id in self.product_index}
-        return {
+        summary = {
             "enabled": True,
             "allowed_count": len(allowed),
-            "retrieval_id_match_count": len(retrieval_matches),
-            "retrieval_index_position_count": position_count,
             "metadata_match_count": len(metadata_matches),
-            "unknown_retrieval_pill_ids": sorted(allowed - retrieval_matches),
             "unknown_metadata_pill_ids": sorted(allowed - metadata_matches),
         }
+        if self.retriever is not None:
+            summary.update(
+                {
+                    "retrieval_id_match_count": len(retrieval_matches),
+                    "retrieval_index_position_count": position_count,
+                    "unknown_retrieval_pill_ids": sorted(allowed - retrieval_matches),
+                }
+            )
+        if self.aihub_classifier is not None:
+            summary.update(
+                {
+                    "classifier_id_match_count": len(classifier_matches),
+                    "unknown_classifier_pill_ids": sorted(allowed - classifier_matches),
+                }
+            )
+        return summary
 
 
 def recognize_crops_with_retriever(
@@ -345,16 +405,107 @@ def recognize_crops_with_retriever(
     return results
 
 
+def recognize_crops_with_aihub_classifier(
+    classifier,
+    crops: list[np.ndarray],
+    top_k: int,
+    query_preprocess: str = "multi_foreground",
+    allowed_pill_ids: set[str] | None = None,
+) -> list[list[ProductCandidate]]:
+    if not crops:
+        return []
+    if classifier is None:
+        return [[] for _ in crops]
+
+    valid_pairs = [(index, crop) for index, crop in enumerate(crops) if crop.size]
+    results = [[] for _ in crops]
+    if not valid_pairs:
+        return results
+
+    modes = query_preprocess_modes(query_preprocess)
+    variant_images = []
+    variant_owners = []
+    variant_modes = []
+    for index, crop in valid_pairs:
+        for mode in modes:
+            variant_images.append(preprocess_query_crop(crop, mode))
+            variant_owners.append(index)
+            variant_modes.append(mode)
+
+    predictions = classifier.predict_batch(
+        variant_images,
+        top_k=max(top_k * 8, 20),
+        allowed_pill_ids=allowed_pill_ids,
+    )
+    by_crop: dict[int, dict[str, tuple[Candidate, str]]] = {
+        index: {} for index, _ in valid_pairs
+    }
+    for owner, mode, candidates in zip(variant_owners, variant_modes, predictions):
+        for candidate in candidates:
+            current = by_crop[owner].get(candidate.class_name)
+            if current is None or candidate.confidence > current[0].confidence:
+                by_crop[owner][candidate.class_name] = (candidate, mode)
+
+    for index, _ in valid_pairs:
+        ranked = sorted(
+            by_crop[index].values(),
+            key=lambda item: item[0].confidence,
+            reverse=True,
+        )[:top_k]
+        results[index] = [
+            product_candidate_from_aihub_candidate(rank, candidate, mode)
+            for rank, (candidate, mode) in enumerate(ranked, start=1)
+        ]
+    return results
+
+
+def product_candidate_from_aihub_candidate(
+    rank: int,
+    candidate: Candidate,
+    mode: str,
+) -> ProductCandidate:
+    return ProductCandidate(
+        rank=rank,
+        pill_id=candidate.class_name,
+        score=round(float(candidate.confidence) * 100.0, 2),
+        source="aihub_resnet152_classifier",
+        product_name=candidate.product_name,
+        ingredient=candidate.ingredient,
+        caution_points=[],
+        company=candidate.company,
+        item_seq=candidate.item_seq,
+        etc_otc_code=candidate.etc_otc_code,
+        print_front=candidate.print_front,
+        print_back=candidate.print_back,
+        drug_shape=candidate.drug_shape,
+        color_class1=candidate.color_class1,
+        color_class2=candidate.color_class2,
+        matched=f"AIHub official ResNet152 classifier ({mode})",
+        reference_image_url=product_reference_image_url(candidate.class_name),
+    )
+
+
 def scope_warnings(warnings: list[str], candidate_scope: dict) -> list[str]:
     output = list(warnings)
-    if candidate_scope.get("enabled") and not candidate_scope.get(
-        "retrieval_id_match_count",
-    ):
+    if scope_has_no_recognition_match(candidate_scope):
         output.append(
-            "No allowed pill IDs are present in the retrieval index. "
+            "No allowed pill IDs are present in the active recognition index. "
             "Check the user's medication K-ID mapping."
         )
     return output
+
+
+def scope_has_no_recognition_match(candidate_scope: dict) -> bool:
+    if not candidate_scope.get("enabled"):
+        return False
+    retrieval_matches = candidate_scope.get("retrieval_id_match_count")
+    classifier_matches = candidate_scope.get("classifier_id_match_count")
+    known_counts = [
+        count
+        for count in (retrieval_matches, classifier_matches)
+        if count is not None
+    ]
+    return bool(known_counts) and all(int(count) == 0 for count in known_counts)
 
 
 def local_visual_observation(crop: np.ndarray) -> VisionObservation:

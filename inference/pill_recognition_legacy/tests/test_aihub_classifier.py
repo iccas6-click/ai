@@ -1,8 +1,10 @@
 import json
 
 import pytest
+import torch
 
 from pill_recognition_legacy.aihub_classifier import (
+    AIHubPillClassifier,
     load_aihub_class_names,
     load_aihub_product_master,
     rotate_crop,
@@ -100,3 +102,56 @@ def test_rotate_crop_returns_contiguous_rotated_array():
 
     assert rotated.flags["C_CONTIGUOUS"]
     assert rotated.shape == (2, 2, 3)
+
+
+def test_aihub_classifier_scopes_probabilities_to_allowed_pill_ids():
+    classifier = AIHubPillClassifier.__new__(AIHubPillClassifier)
+    classifier.class_ids_by_name = {
+        "K-ONE": 0,
+        "K-TWO": 1,
+        "K-THREE": 2,
+    }
+
+    probabilities = torch.tensor([[0.7, 0.2, 0.1]])
+    scoped = classifier._scope_probabilities(
+        probabilities,
+        allowed_pill_ids={"K-TWO", "K-THREE", "K-MISSING"},
+    )
+
+    assert scoped.tolist() == [[0.0, pytest.approx(2 / 3), pytest.approx(1 / 3)]]
+
+
+def test_aihub_classifier_scopes_to_zero_when_allowed_ids_are_unknown():
+    classifier = AIHubPillClassifier.__new__(AIHubPillClassifier)
+    classifier.class_ids_by_name = {"K-ONE": 0}
+
+    scoped = classifier._scope_probabilities(
+        torch.tensor([[1.0]]),
+        allowed_pill_ids={"K-MISSING"},
+    )
+
+    assert scoped.tolist() == [[0.0]]
+
+
+def test_aihub_classifier_predict_batch_filters_candidates_outside_allowed_scope():
+    classifier = AIHubPillClassifier.__new__(AIHubPillClassifier)
+    classifier.class_names = {
+        0: "K-ONE",
+        1: "K-TWO",
+        2: "K-THREE",
+    }
+    classifier.class_ids_by_name = {
+        "K-ONE": 0,
+        "K-TWO": 1,
+        "K-THREE": 2,
+    }
+    classifier.product_master = {}
+    classifier._predict_probabilities = lambda crops: torch.tensor([[0.7, 0.2, 0.1]])
+
+    candidates = classifier.predict_batch(
+        [object()],
+        top_k=3,
+        allowed_pill_ids={"K-TWO"},
+    )[0]
+
+    assert [candidate.class_name for candidate in candidates] == ["K-TWO"]

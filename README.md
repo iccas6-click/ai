@@ -16,7 +16,7 @@ ai/
 │   ├── artifacts/            # 추론 모델 가중치, Git 제외
 │   ├── aihub_official_code/  # AI Hub 공식 배포 파일, Git 제외
 │   ├── outputs/              # 추론 결과, Git 제외
-│   ├── pill_recognition/     # v2: RTMDet + AI Hub ResNet retrieval
+│   ├── pill_recognition/     # v2: RTMDet + AI Hub ResNet retrieval/classifier
 │   ├── pill_recognition_legacy/ # v1: RTMDet + ResNet/EfficientNet baseline 보존
 │   └── supplement_recognition/
 └── README.md
@@ -26,12 +26,12 @@ ai/
 
 ## 현재 구현 상태
 
-`pill-baseline` 브랜치의 기본 의약품 인식 런타임은 v2 retrieval 구조입니다.
+`pill-baseline` 브랜치의 기본 의약품 인식 런타임은 v2 구조입니다.
 
 - 한 이미지에서 여러 알약을 `pill` 단일 클래스로 탐지
 - RTMDet Bounding Box 기준으로 알약별 crop 생성
-- AI Hub 공식 ResNet152의 fc 직전 feature로 crop embedding 생성
-- AI Hub 1,000종 reference prototype embedding과 cosine similarity 검색
+- 기본 빠른 경로는 AI Hub 공식 ResNet152 feature와 1,000종 reference prototype embedding의 cosine similarity 검색
+- 정확도 검증 경로는 AI Hub 공식 1,000-class ResNet152 classifier에 crop adapter를 붙여 직접 제품 분류
 - 결과는 제품명, 성분, 업체, 품목기준코드, 일반/전문 여부와 함께 반환
 - Gradio 데모와 FastAPI `/recognize` endpoint 제공
 - Gemini는 기본 경로에서 제외하고, 비교/실험용 provider로만 유지
