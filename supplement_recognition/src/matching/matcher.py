@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from supplement_recognition.src.extraction.ingredient_parser import extract_ingredients
 from supplement_recognition.src.matching.mfds_client import search_product
 from supplement_recognition.src.schema.result import SupplementProduct
 
@@ -16,11 +17,14 @@ def match_and_enrich(product_name: str) -> SupplementProduct:
             confidence=0.0,
         )
 
+    ingredients = extract_ingredients(mfds.main_function, mfds.base_standard)
+
     return SupplementProduct(
         product_code=mfds.product_code,
         product_name=mfds.product_name,
         manufacturer=mfds.manufacturer,
         main_function=mfds.main_function,
         base_standard=mfds.base_standard,
+        ingredients=ingredients,
         confidence=round(mfds.similarity / 100, 2),
     )

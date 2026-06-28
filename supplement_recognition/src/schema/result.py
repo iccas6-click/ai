@@ -29,6 +29,7 @@ class SupplementProduct(BaseModel):
     manufacturer: Optional[str] = None
     main_function: Optional[str] = None
     base_standard: Optional[str] = None
+    ingredients: list[str] = Field(default_factory=list)  # 파싱된 성분명 리스트
     confidence: float = Field(ge=0.0, le=1.0)
 
 
