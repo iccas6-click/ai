@@ -317,6 +317,45 @@ AIHub 공식 1,000-class classifier를 직접 쓰는 `PILL_RECOGNIZER=aihub_clas
 
 이 결과는 detector 문제가 아니라 crop 분포 문제가 크다는 뜻입니다. AIHub 원본 crop 검증에서는 공식 classifier가 높게 맞고, RTMDet synthetic scene crop에서는 배경/tint를 걷어내야 성능이 올라갑니다. 단, synthetic scene 자체가 실제 스마트폰 사진과 다르므로 최종 판단은 실제 촬영 검증셋으로 별도 확인해야 합니다.
 
+## Synthetic scene classifier fine-tune
+
+AIHub 공식 classifier를 그대로 쓰면 원본 crop은 잘 맞지만, 합성 multi-pill scene에서 잘라낸 crop은 분포가 달라 Top-3가 낮습니다. 서버에서는 AIHub ResNet152를 초기값으로 두고 `layer4 + fc`만 synthetic scene crop에 맞게 fine-tune한 후보 checkpoint를 만들었습니다.
+
+```bash
+PILL_DEVICE=cuda:0 python -m pill_recognition.fine_tune_synthetic_classifier \
+  --dataset-root ../datasets/processed/rtmdet-aihub-synthetic-realistic-max10-v2 \
+  --output artifacts/classifier/aihub-resnet152-synthetic-layer4-none-v2.pt \
+  --report-output outputs/evaluation/aihub-resnet152-synthetic-layer4-none-v2.json \
+  --query-preprocess none \
+  --epochs 8 \
+  --batch-size 32 \
+  --num-workers 4 \
+  --lr 0.0001
+```
+
+이후 저장된 checkpoint에서 lr `0.00005`로 8 epoch를 이어 학습했습니다.
+
+현재 서버 데모 조합:
+
+```bash
+export PILL_RECOGNIZER=aihub_classifier
+export PILL_AIHUB_WEIGHTS=/home/gyu/pill/code/ai/inference/artifacts/classifier/aihub-resnet152-synthetic-layer4-none-v2-continued.pt
+export PILL_AIHUB_CLASSIFIER_QUERY_PREPROCESS=none
+export PILL_CROP_PADDING_RATIO=0
+export PILL_DETECTOR_CHECKPOINT=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/model-aihub-synthetic-v2.pth
+export PILL_DETECTOR_CLASSES=/home/gyu/pill/code/ai/inference/artifacts/rtmdet-single-class/pill.yaml
+```
+
+`rtmdet-aihub-synthetic-realistic-max10-v2` val 전체 1,000장 end-to-end 기준:
+
+| Recognizer/checkpoint | Detector | Preprocess | Detector F1 | Recognition Top-3 on matched | End-to-end Top-3 on GT | Top-5 on GT | Mean total |
+|---|---|---|---:|---:|---:|---:|---:|
+| AIHub official classifier | default RTMDet | `grabcut_dark` | 0.981321 | 0.134633 | 0.130866 | 0.167870 | 740.371ms |
+| AIHub official classifier | synthetic v2 RTMDet | `grabcut_dark` | 0.999548 | 0.166215 | 0.166065 | 0.211191 | 544.791ms |
+| synthetic layer4 fine-tune | synthetic v2 RTMDet | `none` | 0.999468 | 0.455045 | 0.454965 | 0.561879 | 104.606ms |
+
+이 checkpoint는 synthetic scene 분포에 맞춘 실험 후보입니다. 실제 스마트폰 사진에 바로 일반화된다는 뜻은 아니므로, 실제 촬영 검증셋에서는 AIHub official checkpoint와 synthetic fine-tune checkpoint를 같은 이미지로 나란히 비교해야 합니다.
+
 ## Foundation embedding 비교 실험
 
 AI Hub ResNet retrieval보다 나은 reference search encoder가 있는지 비교하기 위한 DINOv2 실험 스크립트입니다. 기본 앱 경로에는 연결하지 않고, 같은 AIHub held-out crop 평가셋으로 먼저 비교합니다.
