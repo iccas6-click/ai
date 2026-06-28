@@ -21,6 +21,10 @@ from pill_recognition_legacy.schemas import Candidate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MULTI_PILL_DATASET = "rtmdet-aihub-synthetic-realistic-max10-v2"
+PREFERRED_MULTI_PILL_DATASETS = [
+    "rtmdet-aihub-synthetic-realistic-clean-v3-pilot",
+    "rtmdet-aihub-synthetic-realistic-max10-v2",
+]
 
 
 @lru_cache(maxsize=1)
@@ -205,15 +209,36 @@ def evaluate_aihub_classifier_dataset(
 
 
 @lru_cache(maxsize=1)
-def multi_pill_sample_choices() -> list[str]:
-    image_dir = multi_pill_dataset_root() / "images" / "val"
+def multi_pill_dataset_choices() -> list[str]:
+    processed_root = REPO_ROOT / "datasets" / "processed"
+    if not processed_root.is_dir():
+        return []
+    datasets = [
+        path.name
+        for path in processed_root.iterdir()
+        if (path / "images" / "val").is_dir()
+        and (path / "metadata" / "val").is_dir()
+    ]
+    preferred = [name for name in PREFERRED_MULTI_PILL_DATASETS if name in datasets]
+    remaining = sorted(name for name in datasets if name not in preferred)
+    return preferred + remaining
+
+
+def default_multi_pill_dataset() -> str:
+    choices = multi_pill_dataset_choices()
+    return choices[0] if choices else DEFAULT_MULTI_PILL_DATASET
+
+
+@lru_cache(maxsize=16)
+def multi_pill_sample_choices(dataset_name: str) -> list[str]:
+    image_dir = multi_pill_dataset_root(dataset_name) / "images" / "val"
     if not image_dir.is_dir():
         return []
     choices = []
     for image_path in sorted(image_dir.iterdir()):
         if image_path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
             continue
-        metadata = load_multi_pill_metadata(image_path.stem)
+        metadata = load_multi_pill_metadata(dataset_name, image_path.stem)
         pill_count = metadata.get("pill_count")
         pills = metadata.get("pills") or []
         names = ", ".join(
@@ -227,20 +252,26 @@ def multi_pill_sample_choices() -> list[str]:
     return choices
 
 
-def multi_pill_dataset_root() -> Path:
-    return REPO_ROOT / "datasets" / "processed" / DEFAULT_MULTI_PILL_DATASET
+def multi_pill_dataset_root(dataset_name: str | None = None) -> Path:
+    dataset = (dataset_name or default_multi_pill_dataset()).strip()
+    return REPO_ROOT / "datasets" / "processed" / dataset
 
 
-def load_multi_pill_metadata(sample_stem: str) -> dict:
-    metadata_path = multi_pill_dataset_root() / "metadata" / "val" / f"{sample_stem}.json"
+def load_multi_pill_metadata(dataset_name: str, sample_stem: str) -> dict:
+    metadata_path = (
+        multi_pill_dataset_root(dataset_name)
+        / "metadata"
+        / "val"
+        / f"{sample_stem}.json"
+    )
     if not metadata_path.exists():
         return {}
     return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
-def resolve_multi_pill_sample_path(selection: str) -> Path:
+def resolve_multi_pill_sample_path(dataset_name: str, selection: str) -> Path:
     sample_stem = (selection or "").split("|", 1)[0].strip()
-    image_dir = multi_pill_dataset_root() / "images" / "val"
+    image_dir = multi_pill_dataset_root(dataset_name) / "images" / "val"
     for suffix in [".jpg", ".jpeg", ".png", ".webp"]:
         image_path = image_dir / f"{sample_stem}{suffix}"
         if image_path.exists():
@@ -248,17 +279,25 @@ def resolve_multi_pill_sample_path(selection: str) -> Path:
     raise FileNotFoundError(f"Multi-pill sample not found: {sample_stem}")
 
 
-def load_multi_pill_sample(selection: str):
+def update_multi_pill_samples(dataset_name: str):
+    choices = multi_pill_sample_choices(dataset_name)
+    return gr.update(choices=choices, value=choices[0] if choices else None)
+
+
+def load_multi_pill_sample(dataset_name: str, selection: str):
     if not selection:
         return None, [], {"error": "샘플을 선택해 주세요."}
-    image_path = resolve_multi_pill_sample_path(selection)
-    metadata = load_multi_pill_metadata(image_path.stem)
+    image_path = resolve_multi_pill_sample_path(dataset_name, selection)
+    metadata = load_multi_pill_metadata(dataset_name, image_path.stem)
     image = np.asarray(Image.open(image_path).convert("RGB"))
     return image, multi_pill_ground_truth_rows(metadata), {
-        "dataset": DEFAULT_MULTI_PILL_DATASET,
+        "dataset": dataset_name,
         "image_path": str(image_path),
         "metadata_path": str(
-            multi_pill_dataset_root() / "metadata" / "val" / f"{image_path.stem}.json"
+            multi_pill_dataset_root(dataset_name)
+            / "metadata"
+            / "val"
+            / f"{image_path.stem}.json"
         ),
         "pill_count": metadata.get("pill_count"),
         "background": metadata.get("background"),
@@ -266,8 +305,12 @@ def load_multi_pill_sample(selection: str):
     }
 
 
-def recognize_multi_pill_sample(selection: str, allowed_pill_ids_text: str = ""):
-    image, ground_truth, sample_info = load_multi_pill_sample(selection)
+def recognize_multi_pill_sample(
+    dataset_name: str,
+    selection: str,
+    allowed_pill_ids_text: str = "",
+):
+    image, ground_truth, sample_info = load_multi_pill_sample(dataset_name, selection)
     if image is None:
         return None, ground_truth, [], sample_info, sample_info
     annotated, prediction_rows, raw_result = recognize(image, allowed_pill_ids_text)
@@ -502,9 +545,17 @@ def build_app() -> gr.Blocks:
         with gr.Tab("멀티알약 테스트셋"):
             gr.Markdown(
                 "# 멀티알약 테스트셋\n"
-                f"`{DEFAULT_MULTI_PILL_DATASET}` val 이미지를 서버에서 직접 불러와 인식합니다."
+                "서버의 `datasets/processed/*/images/val` 이미지를 직접 불러와 인식합니다."
             )
-            sample_choices = multi_pill_sample_choices()
+            dataset_choices = multi_pill_dataset_choices()
+            selected_dataset = default_multi_pill_dataset()
+            sample_choices = multi_pill_sample_choices(selected_dataset)
+            dataset_selector = gr.Dropdown(
+                choices=dataset_choices,
+                value=selected_dataset if dataset_choices else None,
+                label="데이터셋 선택",
+                interactive=True,
+            )
             sample_selector = gr.Dropdown(
                 choices=sample_choices,
                 value=sample_choices[0] if sample_choices else None,
@@ -540,14 +591,19 @@ def build_app() -> gr.Blocks:
             )
             sample_info = gr.JSON(label="샘플 정보")
             sample_result = gr.JSON(label="전체 인식 결과")
+            dataset_selector.change(
+                fn=update_multi_pill_samples,
+                inputs=[dataset_selector],
+                outputs=[sample_selector],
+            )
             load_sample_button.click(
                 fn=load_multi_pill_sample,
-                inputs=[sample_selector],
+                inputs=[dataset_selector, sample_selector],
                 outputs=[dataset_source, ground_truth_table, sample_info],
             )
             run_sample_button.click(
                 fn=recognize_multi_pill_sample,
-                inputs=[sample_selector, dataset_allowed_scope],
+                inputs=[dataset_selector, sample_selector, dataset_allowed_scope],
                 outputs=[
                     dataset_annotated,
                     ground_truth_table,
