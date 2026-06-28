@@ -79,7 +79,7 @@ class SyntheticPillCropDataset(Dataset):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fine-tune AIHub ResNet152 layer4/fc on synthetic scene crops."
+        description="Fine-tune AIHub ResNet152 on synthetic scene crops."
     )
     parser.add_argument(
         "--dataset-root",
@@ -97,6 +97,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-train-images", type=int)
     parser.add_argument("--max-val-images", type=int)
     parser.add_argument("--include-source-crops", action="store_true")
+    parser.add_argument(
+        "--trainable-blocks",
+        choices=["fc", "layer4", "layer3-layer4", "all"],
+        default="layer4",
+        help="Backbone blocks to unfreeze. All modes also train fc.",
+    )
     return parser.parse_args()
 
 
@@ -117,7 +123,7 @@ def main() -> None:
     output_classes = int(state_dict["fc.weight"].shape[0])
     model = models.resnet152(weights=None, num_classes=output_classes)
     model.load_state_dict(state_dict)
-    freeze_except_layer4_and_fc(model)
+    freeze_model(model, args.trainable_blocks)
     model.to(device)
 
     transform = transforms.Compose(
@@ -231,6 +237,7 @@ def main() -> None:
                 "dataset_root": str(args.dataset_root),
                 "query_preprocess": args.query_preprocess,
                 "include_source_crops": args.include_source_crops,
+                "trainable_blocks": args.trainable_blocks,
                 "train_examples": len(train_dataset),
                 "val_examples": len(val_dataset),
                 "best_val_top3": best_top3,
@@ -243,6 +250,7 @@ def main() -> None:
         "dataset_root": str(args.dataset_root),
         "query_preprocess": args.query_preprocess,
         "include_source_crops": args.include_source_crops,
+        "trainable_blocks": args.trainable_blocks,
         "train_examples": len(train_dataset),
         "val_examples": len(val_dataset),
         "elapsed_sec": round(perf_counter() - start, 2),
@@ -255,10 +263,19 @@ def main() -> None:
     print(json.dumps(report, ensure_ascii=False, indent=2), flush=True)
 
 
-def freeze_except_layer4_and_fc(model: nn.Module) -> None:
+def freeze_model(model: nn.Module, trainable_blocks: str) -> None:
     for parameter in model.parameters():
         parameter.requires_grad = False
-    for module in [model.layer4, model.fc]:
+
+    modules = [model.fc]
+    if trainable_blocks in {"layer4", "layer3-layer4", "all"}:
+        modules.append(model.layer4)
+    if trainable_blocks in {"layer3-layer4", "all"}:
+        modules.append(model.layer3)
+    if trainable_blocks == "all":
+        modules.extend([model.conv1, model.bn1, model.layer1, model.layer2])
+
+    for module in modules:
         for parameter in module.parameters():
             parameter.requires_grad = True
 
