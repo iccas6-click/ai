@@ -47,6 +47,9 @@ def main() -> None:
     parser.add_argument("--max-pills", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--jpeg-quality", type=int, default=92)
+    parser.add_argument("--image-format", choices=("jpg", "png"), default="jpg")
+    parser.add_argument("--mask-method", choices=("foreground", "grabcut"), default="foreground")
+    parser.add_argument("--color-match-strength", type=float, default=1.0)
     parser.add_argument(
         "--background-mode",
         choices=("realistic", "simple"),
@@ -72,6 +75,9 @@ def main() -> None:
         "min_pills": args.min_pills,
         "max_pills": args.max_pills,
         "background_mode": args.background_mode,
+        "image_format": args.image_format,
+        "mask_method": args.mask_method,
+        "color_match_strength": args.color_match_strength,
         "seed": args.seed,
         "class_count": len(class_index),
         "splits": {},
@@ -86,6 +92,9 @@ def main() -> None:
             min_pills=args.min_pills,
             max_pills=args.max_pills,
             background_mode=args.background_mode,
+            image_format=args.image_format,
+            mask_method=args.mask_method,
+            color_match_strength=args.color_match_strength,
             rng=rng,
             jpeg_quality=args.jpeg_quality,
         )
@@ -147,6 +156,9 @@ def generate_split(
     min_pills: int,
     max_pills: int,
     background_mode: str,
+    image_format: str,
+    mask_method: str,
+    color_match_strength: float,
     rng: random.Random,
     jpeg_quality: int,
 ) -> dict:
@@ -172,16 +184,19 @@ def generate_split(
             image_size=image_size,
             pill_count=pill_count,
             background_mode=background_mode,
+            mask_method=mask_method,
+            color_match_strength=color_match_strength,
             rng=rng,
         )
-        image_name = f"aihub_synth_{split}_{image_index:06d}.jpg"
+        image_name = f"aihub_synth_{split}_{image_index:06d}.{image_format}"
         label_name = f"aihub_synth_{split}_{image_index:06d}.txt"
         metadata_name = f"aihub_synth_{split}_{image_index:06d}.json"
-        cv2.imwrite(
-            str(image_dir / image_name),
-            scene["image"],
-            [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality],
+        image_params = (
+            [int(cv2.IMWRITE_PNG_COMPRESSION), 3]
+            if image_format == "png"
+            else [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality]
         )
+        cv2.imwrite(str(image_dir / image_name), scene["image"], image_params)
         (label_dir / label_name).write_text(
             "\n".join(scene["yolo_labels"]) + "\n",
             encoding="utf-8",
@@ -247,6 +262,8 @@ def synthesize_scene(
     image_size: int,
     pill_count: int,
     background_mode: str,
+    mask_method: str,
+    color_match_strength: float,
     rng: random.Random,
 ) -> dict:
     canvas, background_name = random_background(image_size, rng, background_mode)
@@ -269,10 +286,17 @@ def synthesize_scene(
         )
         asset = class_index[class_name]
         source_image = rng.choice(asset.image_paths)
-        patch, alpha, mask_quality = load_pill_patch(source_image, rng)
+        patch, alpha, mask_quality = load_pill_patch(source_image, rng, mask_method)
         if patch is None or alpha is None or mask_quality is None:
             continue
-        box, pasted = paste_patch(canvas, patch, alpha, placed_boxes, rng)
+        box, pasted = paste_patch(
+            canvas,
+            patch,
+            alpha,
+            placed_boxes,
+            rng,
+            color_match_strength=color_match_strength,
+        )
         if box is None:
             continue
         placed_boxes.append(box)
@@ -534,11 +558,16 @@ def apply_photo_lighting(canvas: np.ndarray, rng: random.Random) -> np.ndarray:
 def load_pill_patch(
     image_path: Path,
     rng: random.Random,
+    mask_method: str = "foreground",
 ) -> tuple[np.ndarray | None, np.ndarray | None, dict | None]:
     image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
     if image is None:
         return None, None, None
-    mask = extract_foreground_mask(image)
+    mask = (
+        extract_grabcut_foreground_mask(image)
+        if mask_method == "grabcut"
+        else extract_foreground_mask(image)
+    )
     bbox = mask_bbox(mask)
     if bbox is None:
         return None, None, None
@@ -551,6 +580,38 @@ def load_pill_patch(
     if not is_usable_mask_quality(quality):
         return None, None, None
     return patch, alpha, quality
+
+
+def extract_grabcut_foreground_mask(image: np.ndarray) -> np.ndarray:
+    height, width = image.shape[:2]
+    if height < 16 or width < 16:
+        return extract_foreground_mask(image)
+
+    inset_x = max(2, round(width * 0.04))
+    inset_y = max(2, round(height * 0.04))
+    rect = (
+        inset_x,
+        inset_y,
+        max(1, width - (2 * inset_x)),
+        max(1, height - (2 * inset_y)),
+    )
+    mask = np.zeros((height, width), dtype=np.uint8)
+    bgd_model = np.zeros((1, 65), dtype=np.float64)
+    fgd_model = np.zeros((1, 65), dtype=np.float64)
+    try:
+        cv2.grabCut(image, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+    except cv2.error:
+        return extract_foreground_mask(image)
+
+    binary = np.where(
+        (mask == cv2.GC_FGD) | (mask == cv2.GC_PR_FGD),
+        255,
+        0,
+    ).astype(np.uint8)
+    area_ratio = float(np.count_nonzero(binary > 16) / binary.size) if binary.size else 0.0
+    if not 0.03 <= area_ratio <= 0.85:
+        return extract_foreground_mask(image)
+    return clean_centered_mask(binary, image.shape)
 
 
 def extract_foreground_mask(image: np.ndarray) -> np.ndarray:
@@ -588,6 +649,22 @@ def extract_foreground_mask(image: np.ndarray) -> np.ndarray:
     cleaned = np.zeros_like(mask)
     cv2.drawContours(cleaned, [largest], -1, 255, thickness=-1)
     cleaned = cv2.erode(cleaned, np.ones((3, 3), np.uint8), iterations=1)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    return cv2.GaussianBlur(cleaned, (5, 5), 0)
+
+
+def clean_centered_mask(mask: np.ndarray, image_shape: tuple[int, ...]) -> np.ndarray:
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return mask
+    center = np.array([image_shape[1] / 2, image_shape[0] / 2])
+    contour = max(
+        contours,
+        key=lambda item: cv2.contourArea(item)
+        - np.linalg.norm(item.reshape(-1, 2).mean(axis=0) - center) * 1.5,
+    )
+    cleaned = np.zeros_like(mask)
+    cv2.drawContours(cleaned, [contour], -1, 255, thickness=-1)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     return cv2.GaussianBlur(cleaned, (5, 5), 0)
 
@@ -703,6 +780,7 @@ def paste_patch(
     alpha: np.ndarray,
     placed_boxes: list[tuple[int, int, int, int]],
     rng: random.Random,
+    color_match_strength: float = 1.0,
 ) -> tuple[tuple[int, int, int, int] | None, dict | None]:
     canvas_height, canvas_width = canvas.shape[:2]
     patch_height, patch_width = patch.shape[:2]
@@ -731,7 +809,13 @@ def paste_patch(
     )
 
     region = canvas[y1:y2, x1:x2]
-    patch = match_patch_to_background(patch, alpha, region, rng)
+    patch = match_patch_to_background(
+        patch,
+        alpha,
+        region,
+        rng,
+        strength=color_match_strength,
+    )
     blend_alpha = (alpha.astype(np.float32) / 255.0)[:, :, None]
     canvas[y1:y2, x1:x2] = (
         patch.astype(np.float32) * blend_alpha
@@ -778,7 +862,10 @@ def match_patch_to_background(
     alpha: np.ndarray,
     region: np.ndarray,
     rng: random.Random,
+    strength: float = 1.0,
 ) -> np.ndarray:
+    if strength <= 0:
+        return patch
     foreground = alpha > 64
     background = alpha < 8
     if foreground.sum() < 16 or background.sum() < 16:
@@ -789,8 +876,16 @@ def match_patch_to_background(
     background_mean = region_float[background].mean(axis=0)
     target_luma = float(background_mean.mean())
     foreground_luma = float(foreground_mean.mean())
-    luma_delta = np.clip((target_luma - foreground_luma) * rng.uniform(0.04, 0.12), -12, 12)
-    color_delta = np.clip((background_mean - foreground_mean) * rng.uniform(0.015, 0.045), -8, 8)
+    luma_delta = np.clip(
+        (target_luma - foreground_luma) * rng.uniform(0.04, 0.12) * strength,
+        -12,
+        12,
+    )
+    color_delta = np.clip(
+        (background_mean - foreground_mean) * rng.uniform(0.015, 0.045) * strength,
+        -8,
+        8,
+    )
     adjusted = patch_float + luma_delta + color_delta[None, None, :]
     if rng.random() < 0.35:
         adjusted = cv2.GaussianBlur(adjusted, (0, 0), rng.uniform(0.15, 0.45))
