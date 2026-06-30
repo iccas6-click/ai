@@ -1,0 +1,9 @@
+easyocr==1.7.2
+openai>=1.30.0
+rapidfuzz==3.10.1
+Pillow==10.4.0
+numpy==1.26.4
+mysql-connector-python==9.3.0
+python-dotenv==1.0.1
+pytest==8.3.3
+pytest-asyncio==0.24.0

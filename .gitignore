@@ -1,11 +1,29 @@
+# 환경 변수 — 절대 커밋 금지
+.env
+.env*.local
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 가상환경
 .venv/
+venv/
+env/
 .cache/
+
+# 빌드
+dist/
+build/
+
+# pill_recognition 관련
 artifacts/
 outputs/
 inference/logs/
 pill_recognition/inference/logs/
 logs/
-*.log
 *.exit
 official_code/
 aihub_official_code/
@@ -34,10 +52,24 @@ pill_recognition/datasets/evaluation/real-smartphone/annotations/*
 pill_recognition/datasets/evaluation/real-smartphone/images/*
 !pill_recognition/datasets/evaluation/real-smartphone/images/.gitkeep
 
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
+# supplement_recognition 관련
+**/supplement_recognition/**/_preprocessed_*
+supplement_recognition/scripts/fetch_log.txt
+supplement_recognition/data/*
+!supplement_recognition/data/samples/
+supplement_recognition/data/samples/*
+!supplement_recognition/data/samples/.gitkeep
+!supplement_recognition/data/mfds_cache/
+supplement_recognition/data/mfds_cache/*
+!supplement_recognition/data/mfds_cache/.gitkeep
 
-.env
+# 업로드 임시 파일
+tmp/
+/tmp/
+
+# 로그
+*.log
+
+# OS 생성 파일
 .DS_Store
+Thumbs.db
