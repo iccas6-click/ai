@@ -2,223 +2,145 @@
 
 CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 인식** 파이프라인을 개발하는 저장소입니다.
 
-이 저장소의 책임은 이미지에서 제품 후보와 성분 정보를 추출해 구조화된 인식 결과를 만드는 것까지입니다. 성분 간 상호작용 판정, 위험도 결정, 사용자용 설명 생성은 이 저장소의 범위에 포함하지 않습니다.
+이미지에서 제품 후보와 성분 정보를 추출해 구조화된 인식 결과를 만드는 것까지가 이 저장소의 책임입니다.
+성분 간 상호작용 판정, 위험도 결정, 사용자용 설명 생성은 `click/backend`에서 담당합니다.
+
+---
 
 ## 디렉터리 구조
 
-```text
+```
 ai/
-├── pill_recognition/          # 의약품 및 알약 인식 파이프라인
-├── supplement_recognition/    # 건강기능식품 라벨 인식 파이프라인
-└── README.md
+├── app/                        # FastAPI 서버 (port 8001)
+│   ├── main.py
+│   └── api/v1/
+│       ├── supplement.py       # POST /api/v1/supplement/recognize
+│       └── pill.py             # POST /api/v1/pill/recognize
+├── supplement_recognition/     # 건강기능식품 인식 파이프라인
+├── pill_recognition/           # 의약품 인식 파이프라인
+├── requirements.txt
+├── docker-compose.yml
+└── .env
 ```
 
-## 공통 처리 흐름
+---
 
-```mermaid
-flowchart LR
-    A["이미지 입력"] --> B["입력 검증"]
-    B --> C["이미지 전처리"]
-    C --> D{"인식 대상"}
-    D -->|"의약품"| E["알약 탐지 및 제품 후보 분류"]
-    D -->|"건강기능식품"| F["OCR 및 라벨 정보 구조화"]
-    E --> G["공공 제품 데이터 대조"]
-    F --> G
-    G --> H["후보·성분·함량 구조화"]
-    H --> I["신뢰도 및 확인 필요 여부 반환"]
+## 서버 실행
+
+### 환경 변수 설정
+
+`.env` 파일을 `ai/` 루트에 생성:
+
+```env
+CBNUAI_API_KEY=           # 충북대 AI Gateway API 키 (1순위)
+GEMINI_API_KEY=           # Google Gemini API 키 (fallback용)
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=click_db
+MYSQL_USER=click_user
+MYSQL_PASSWORD=
 ```
 
-두 파이프라인은 다음 원칙을 공유합니다.
+### DB 실행
 
-- 인식 결과를 확정 사실이 아닌 **후보와 신뢰도**로 반환합니다.
-- 원본 이미지와 중간 인식 결과를 추적할 수 있어야 합니다.
-- 신뢰도가 낮거나 여러 제품이 유사하면 `needs_confirmation`을 활성화합니다.
-- 인식 실패 시에도 사용자가 제품과 성분을 직접 입력할 수 있도록 실패 원인을 구분합니다.
-- 제품명과 성분명은 식품의약품안전처 등 공공 데이터와 대조합니다.
-
-## 의약품 인식 파이프라인
-
-위치: [`pill_recognition/`](./pill_recognition/)
-
-### 입력
-
-- 알약 낱알 사진
-- 의약품 포장 또는 용기 사진
-- 선택 입력: 알약 앞·뒷면, 각인, 색상, 모양
-
-### 처리 단계
-
-```mermaid
-flowchart TD
-    A["의약품 이미지"] --> B["파일·해상도·품질 검사"]
-    B --> C["회전 보정 및 크기 정규화"]
-    C --> D{"입력 형태"}
-    D -->|"알약 낱알"| E["RTMDet-tiny 알약 탐지"]
-    E --> F["Bounding Box 기준 Crop"]
-    F --> G["EfficientNet-B0 후보 분류"]
-    D -->|"포장·용기"| H["OCR 텍스트 추출"]
-    G --> I["각인·색상·모양 메타데이터 결합"]
-    H --> J["제품명·함량 후보 추출"]
-    I --> K["의약품 제품 DB 검색"]
-    J --> K
-    K --> L["제품 후보 재정렬"]
-    L --> M["제품·주성분·함량 반환"]
+```bash
+docker compose up -d
 ```
 
-### 모델 및 데이터
+### AI 서버 실행
 
-| 구분 | 용도 |
-|---|---|
-| RTMDet-tiny | 이미지 내 알약 탐지 및 Bounding Box 생성 |
-| EfficientNet-B0 | 잘린 알약 이미지의 제품 후보 분류 및 재검증 |
-| OCR | 의약품 포장과 용기의 제품명·함량 추출 |
-| AI-Hub 알약 이미지 데이터 | 탐지 및 분류 모델 학습·평가 |
-| 식약처 의약품 데이터 | 제품 코드, 제품명, 주성분, 함량 및 외형 정보 대조 |
-| 멀티모달 모델 | 색상·모양·각인이 모호한 경우의 보조 추론 |
+```bash
+# ai/ 루트에서 실행
+uvicorn app.main:app --reload --port 8001
+```
 
-멀티모달 모델은 기본 분류기를 대체하지 않습니다. 후보가 불명확한 경우에만 보조 신호로 사용하며, 최종 결과에는 적용 여부를 기록합니다.
+### API 확인
 
-### 출력 예시
+- Swagger: `http://localhost:8001/docs`
+- 헬스체크: `http://localhost:8001/health`
 
-```json
+---
+
+## 건강기능식품 파이프라인
+
+자세한 내용 → [`supplement_recognition/PIPELINE.md`](./supplement_recognition/PIPELINE.md)
+
+### 처리 흐름
+
+```
+이미지 입력
+  ↓
+[이미지 전처리]
+  auto-crop / 리사이즈 / 노이즈 제거 / 대비·선명도 강화
+  ↓
+[Gemini Vision] 제품명 추출
+  충북대 AI Gateway (gemini-3.5-flash) → 실패 시 Google Gemini API fallback
+  최대 2회 재시도
+  ↓
+[MFDS DB 매칭]
+  FULLTEXT 검색 → RapidFuzz partial_ratio 재랭킹 (유사도 70% 이상)
+  ↓
+[성분 파싱]
+  main_fnctn [브래킷] 패턴 + base_standard 비성분 필터링
+  ↓
+SupplementRecognitionResult 반환
 {
-  "request_id": "rec_pill_001",
-  "status": "needs_confirmation",
-  "input_type": "pill_image",
-  "detections": [
-    {
-      "bbox": [120, 84, 410, 372],
-      "candidates": [
-        {
-          "product_code": "MFDS_PRODUCT_CODE",
-          "product_name": "아스피린정 100mg",
-          "active_ingredients": [
-            {
-              "name": "아세틸살리실산",
-              "amount": 100,
-              "unit": "mg"
-            }
-          ],
-          "confidence": 0.87
-        }
-      ]
-    }
-  ],
-  "needs_confirmation": true,
-  "warnings": []
+  status, product: { product_name, ingredients: [...], confidence, ... }
 }
 ```
 
-## 건강기능식품 인식 파이프라인
+### API 엔드포인트
 
-위치: [`supplement_recognition/`](./supplement_recognition/)
-
-### 입력
-
-- 건강기능식품 앞면 사진
-- 제품 정보 및 원재료가 표시된 뒷면 라벨 사진
-- 여러 장으로 구성된 하나의 제품 이미지 묶음
-
-### 처리 단계
-
-```mermaid
-flowchart TD
-    A["건강기능식품 라벨 이미지"] --> B["파일·해상도·품질 검사"]
-    B --> C["회전·원근·명암 보정"]
-    C --> D["EasyOCR 텍스트 추출"]
-    D --> E["OCR 블록 및 위치 정보 병합"]
-    E --> F["LLM 구조화 추출"]
-    F --> G["제품명·성분·함량·단위 정규화"]
-    G --> H["식약처 건강기능식품 DB 검색"]
-    H --> I{"제품 일치 여부"}
-    I -->|"일치"| J["공공 데이터로 결과 보정"]
-    I -->|"불일치"| K["OCR 기반 후보 유지"]
-    J --> L["제품·기능성 성분·함량 반환"]
-    K --> L
 ```
+POST /api/v1/supplement/recognize
+Content-Type: multipart/form-data
+Body: image (JPG/PNG)
 
-### 모델 및 데이터
-
-| 구분 | 용도 |
-|---|---|
-| EasyOCR | 라벨 이미지의 한글·영문 텍스트 및 위치 추출 |
-| LLM | OCR 텍스트에서 제품명, 성분명, 함량 및 단위 구조화 |
-| 식약처 건강기능식품 데이터 | 제품 및 기능성 원료 정보 검증 |
-
-LLM에는 OCR 원문과 정해진 출력 스키마만 전달합니다. LLM이 라벨에 없는 성분이나 함량을 추정하지 않도록 필드별 근거 텍스트를 함께 반환하게 합니다.
-
-### 출력 예시
-
-```json
+Response:
 {
-  "request_id": "rec_supplement_001",
-  "status": "needs_confirmation",
+  "request_id": "rec_supplement_xxxx",
+  "status": "completed",
   "product": {
-    "product_code": "MFDS_PRODUCT_CODE",
-    "product_name": "오메가3",
-    "functional_ingredients": [
-      {
-        "name": "EPA 및 DHA 함유 유지",
-        "amount": 1000,
-        "unit": "mg",
-        "evidence_text": "EPA 및 DHA 함유 유지 1,000 mg"
-      }
-    ],
-    "confidence": 0.82
+    "product_code": "20230001234567",
+    "product_name": "TWK10 100억 분말",
+    "manufacturer": "...",
+    "ingredients": ["Lactobacillus plantarum TWK10 프로바이오틱스", "프로바이오틱스", "아연", ...],
+    "main_function": "...",
+    "base_standard": "...",
+    "confidence": 0.95
   },
-  "needs_confirmation": true,
+  "needs_confirmation": false,
   "warnings": []
 }
 ```
 
-## 공통 상태와 오류
+---
 
-### 상태
+## 의약품 파이프라인
+
+위치: [`pill_recognition/`](./pill_recognition/) — 팀원 담당
+
+---
+
+## 공통 상태 및 오류 코드
 
 | 상태 | 의미 |
 |---|---|
-| `queued` | 인식 요청이 접수됨 |
-| `processing` | 모델 또는 OCR이 실행 중임 |
-| `needs_confirmation` | 후보가 생성됐으며 사용자 확인이 필요함 |
-| `completed` | 확인 가능한 구조화 결과가 생성됨 |
-| `partial` | 일부 이미지만 인식됨 |
-| `failed` | 결과를 생성하지 못함 |
+| `completed` | 인식 성공 |
+| `needs_confirmation` | DB 미매칭 또는 낮은 신뢰도 — 사용자 확인 필요 |
+| `failed` | 인식 실패 |
 
-### 오류 코드
-
-| 코드 | 의미 |
+| 오류 코드 | 의미 |
 |---|---|
-| `INVALID_FILE` | 지원하지 않는 파일 형식 또는 크기 |
-| `LOW_IMAGE_QUALITY` | 흐림, 반사, 낮은 해상도 등으로 인식 곤란 |
-| `NO_PILL_DETECTED` | 이미지에서 알약을 찾지 못함 |
-| `OCR_TEXT_NOT_FOUND` | 라벨에서 유효한 텍스트를 찾지 못함 |
-| `PRODUCT_NOT_MATCHED` | 공공 데이터에서 일치하는 제품을 찾지 못함 |
-| `MODEL_INFERENCE_FAILED` | 모델 실행 중 오류 발생 |
+| `INVALID_FILE` | JPG/PNG 외 파일 형식 |
+| `OCR_TEXT_NOT_FOUND` | Gemini가 제품명을 추출하지 못함 |
+| `PRODUCT_NOT_MATCHED` | MFDS DB에서 일치 제품 없음 |
+| `MODEL_INFERENCE_FAILED` | Gemini API 호출 실패 |
 
-## 파이프라인 경계
+---
 
-이 저장소가 반환하는 최종 데이터는 다음과 같습니다.
+## 남은 작업
 
-- 제품 코드와 제품명 후보
-- 의약품 주성분 또는 건강기능식품 기능성 성분
-- 함량과 단위
-- 인식 신뢰도
-- 인식 근거와 경고
-- 사용자 확인 필요 여부
-
-다음 기능은 별도 백엔드 영역에서 담당합니다.
-
-- 성분 간 상호작용 규칙 조회
-- 위험 수준 결정
-- 복약 관련 권장 행동 결정
-- 사용자용 최종 결과 화면 데이터 생성
-- 분석 결과 기반 후속 질문
-
-## 개발 순서
-
-1. 입력·출력 스키마와 평가 지표를 확정합니다.
-2. 샘플 이미지로 의약품 탐지와 건강기능식품 OCR 기준선을 만듭니다.
-3. 식약처 제품 데이터 조회 및 후보 매칭을 연결합니다.
-4. 신뢰도 기준과 사용자 확인 조건을 정의합니다.
-5. 대표 제품 데이터로 정확도와 실패 유형을 평가합니다.
-6. 백엔드가 호출할 수 있는 공통 추론 인터페이스를 제공합니다.
+- [ ] Backend 다중 성분 엔드포인트 연동 (`ingredients` 리스트 → `/interactions`)
+- [ ] 실제 이미지 정확도 테스트 (목표: 15~20장)
+- [ ] `src/ocr/reader.py` 제거 (EasyOCR 잔재, 미사용)

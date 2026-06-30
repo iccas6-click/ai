@@ -54,11 +54,18 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
         if not candidates:
             return None
 
-        best = max(
-            candidates,
-            key=lambda r: fuzz.partial_ratio(product_name, r["prduct"]),
-        )
-        best["_similarity"] = fuzz.partial_ratio(product_name, best["prduct"])
+        def _score(candidate_name: str) -> float:
+            # partial_ratio만 쓰면 짧은 쿼리가 긴 제품명 안에 부분 포함될 때 100점을 줘서
+            # 엉뚱한 제품이 매칭되는 문제가 있음.
+            # length_ratio로 길이 차이에 패널티를 주어 보정.
+            partial = fuzz.partial_ratio(product_name, candidate_name)
+            length_ratio = min(len(product_name), len(candidate_name)) / max(
+                len(product_name), len(candidate_name), 1
+            )
+            return partial * (0.5 + 0.5 * length_ratio)
+
+        best = max(candidates, key=lambda r: _score(r["prduct"]))
+        best["_similarity"] = _score(best["prduct"])
 
         return MfdsProduct(
             product_code=best["sttemnt_no"],

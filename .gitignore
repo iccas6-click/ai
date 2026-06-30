@@ -1,18 +1,36 @@
+# 환경 변수 — 절대 커밋 금지
 .env
+.env*.local
+
+# Python 캐시
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .pytest_cache/
 .mypy_cache/
 *.egg-info/
 dist/
 build/
+
+# 가상환경
 .venv/
 venv/
+env/
 
-# 테스트 이미지
-supplement_recognition/data/samples/
-supplement_recognition/data/mfds_cache/
+# 이미지 전처리 임시 파일 (파이프라인 크래시 시 남을 수 있음)
+**/supplement_recognition/**/_preprocessed_*
+
+# 테스트 이미지 / 데이터 (용량 크고 민감할 수 있음)
+supplement_recognition/data/
 
 # 업로드 임시 파일
-/tmp/supplement_uploads/
+tmp/
+/tmp/
+
+# 로그
+*.log
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db
