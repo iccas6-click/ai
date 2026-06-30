@@ -54,7 +54,14 @@ pill_recognition/datasets/evaluation/real-smartphone/images/*
 
 # supplement_recognition 관련
 **/supplement_recognition/**/_preprocessed_*
-supplement_recognition/data/
+supplement_recognition/scripts/fetch_log.txt
+supplement_recognition/data/*
+!supplement_recognition/data/samples/
+supplement_recognition/data/samples/*
+!supplement_recognition/data/samples/.gitkeep
+!supplement_recognition/data/mfds_cache/
+supplement_recognition/data/mfds_cache/*
+!supplement_recognition/data/mfds_cache/.gitkeep
 
 # 업로드 임시 파일
 tmp/

@@ -11,17 +11,45 @@ CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 
 
 ```
 ai/
-├── pill_recognition/          # 의약품 및 알약 인식 파이프라인
-│   ├── datasets/              # 로컬 학습·평가 데이터, 내용 Git 제외
-│   ├── training/              # 학습 설정과 데이터 변환·평가 스크립트
-│   ├── requirements/          # 런타임·학습 의존성
-│   └── inference/             # 학습과 분리된 추론 서비스
-│       ├── artifacts/         # 추론 모델 가중치, Git 제외
-│       ├── aihub_official_code/ # AI Hub 공식 배포 파일, Git 제외
-│       ├── outputs/           # 추론 결과, Git 제외
-│       ├── pill_recognition/  # v2: RTMDet + AI Hub ResNet retrieval/classifier
+├── app/                            # FastAPI 서버 (port 8001)
+│   ├── main.py
+│   ├── core/config.py
+│   └── api/v1/
+│       ├── supplement.py           # POST /api/v1/supplement/recognize
+│       └── pill.py                 # POST /api/v1/pill/recognize
+├── pill_recognition/               # 의약품 및 알약 인식 파이프라인
+│   ├── datasets/                   # 로컬 학습·평가 데이터, 내용 Git 제외
+│   ├── training/                   # 학습 설정과 데이터 변환·평가 스크립트
+│   ├── requirements/               # 런타임·학습 의존성
+│   └── inference/                  # 학습과 분리된 추론 서비스
+│       ├── artifacts/              # 추론 모델 가중치, Git 제외
+│       ├── aihub_official_code/    # AI Hub 공식 배포 파일, Git 제외
+│       ├── outputs/                # 추론 결과, Git 제외
+│       ├── pill_recognition/       # v2: RTMDet + AI Hub ResNet retrieval/classifier
 │       └── pill_recognition_legacy/ # v1 baseline 보존
-├── supplement_recognition/    # 건강기능식품 라벨 인식 파이프라인
+├── supplement_recognition/         # 건강기능식품 라벨 인식 파이프라인
+│   ├── src/
+│   │   ├── pipeline.py             # 파이프라인 오케스트레이션
+│   │   ├── extraction/
+│   │   │   ├── llm_extractor.py    # Gemini Vision 제품명 추출 (retry + fallback)
+│   │   │   ├── image_preprocessor.py # 이미지 전처리 (crop/denoise/enhance)
+│   │   │   └── ingredient_parser.py  # 성분명 파싱 (main_fnctn / base_standard)
+│   │   ├── matching/
+│   │   │   ├── mfds_client.py      # MySQL FULLTEXT + RapidFuzz 매칭
+│   │   │   └── matcher.py          # 매칭 결과 + 성분 파싱 결합
+│   │   └── schema/result.py        # 응답 스키마 (Pydantic)
+│   ├── scripts/
+│   │   ├── evaluate_accuracy.py    # 정확도 측정 (이미지 파일명 = 정답)
+│   │   ├── search_db.py            # DB 대화형 검색
+│   │   ├── test_pipeline.py        # 단일 이미지 파이프라인 테스트
+│   │   └── fetch_mfds_data.py      # MFDS 데이터 수집
+│   ├── db/init.sql                 # DB 초기화 스크립트
+│   ├── data/                       # Git 제외 (테스트 이미지 등)
+│   │   ├── samples/                # 정확도 측정용 테스트 이미지
+│   │   └── mfds_cache/             # MFDS 캐시
+│   └── PIPELINE.md                 # 파이프라인 상세 문서
+├── docker-compose.yml
+├── requirements.txt
 └── README.md
 ```
 
@@ -82,23 +110,58 @@ python -m pill_recognition.app
 ```
 이미지 입력
   ↓
-[이미지 전처리]
-  auto-crop / 리사이즈 / 노이즈 제거 / 대비·선명도 강화
+[이미지 전처리]  image_preprocessor.py
+  auto-crop / 512~1024px 정규화 / GaussianBlur 노이즈 제거 / 대비·선명도 강화
   ↓
-[Gemini Vision] 제품명 추출
-  충북대 AI Gateway (gemini-3.5-flash) → 실패 시 Google Gemini API fallback
-  최대 2회 재시도
+[Gemini Vision]  llm_extractor.py
+  1순위: 충북대 AI Gateway (gemini-3.5-flash, CBNUAI_API_KEY)
+  2순위: Google Gemini API (gemini-2.0-flash, GEMINI_API_KEY)  ← 자동 fallback
+  최대 2회 재시도 (지수 백오프)
   ↓
-[MFDS DB 매칭]
-  FULLTEXT 검색 → RapidFuzz 재랭킹 + 길이 패널티 (유사도 70% 이상)
+[MFDS DB 매칭]  mfds_client.py
+  MySQL FULLTEXT (ngram) 상위 30개 후보 → RapidFuzz + 길이 패널티 재랭킹
+  유사도 70% 미만이면 needs_confirmation 반환
   ↓
-[성분 파싱]
-  main_fnctn [브래킷] 패턴 + base_standard 비성분 필터링
+[성분 파싱]  ingredient_parser.py
+  main_fnctn: [성분명] 브래킷 패턴 추출
+  base_standard: 비성분 키워드 필터링 후 콜론 앞 성분명 추출
+  복합 성분(의 합), 영문 약어(DHA/EPA) 처리
   ↓
 SupplementRecognitionResult 반환
+  { status, product: { product_name, ingredients: [...], confidence }, needs_confirmation }
 ```
 
-### AI 서버 실행
+### 현재 정확도 (테스트 이미지 20장 기준)
+
+| 지표 | 결과 |
+|---|---|
+| Gemini 추출 성공률 | 20/20 = 100% |
+| Gemini 제품명 유사도 | 95.2% |
+| DB 정확 매칭률 | 14/20 = 70% |
+
+### API
+
+```
+POST /api/v1/supplement/recognize
+Content-Type: multipart/form-data
+Body: image (JPG/PNG)
+
+Response:
+{
+  "request_id": "rec_supplement_xxxx",
+  "status": "completed",
+  "product": {
+    "product_code": "20230001234567",
+    "product_name": "센트룸 실버 맨",
+    "manufacturer": "...",
+    "ingredients": ["비타민A", "비타민C", "아연", ...],
+    "confidence": 0.97
+  },
+  "needs_confirmation": false
+}
+```
+
+### 서버 실행
 
 환경 변수 설정 (`.env`):
 ```env
@@ -118,14 +181,6 @@ uvicorn app.main:app --reload --port 8001
 
 - Swagger: `http://localhost:8001/docs`
 - 헬스체크: `http://localhost:8001/health`
-
-### API 엔드포인트
-
-```
-POST /api/v1/supplement/recognize
-Content-Type: multipart/form-data
-Body: image (JPG/PNG)
-```
 
 ---
 
