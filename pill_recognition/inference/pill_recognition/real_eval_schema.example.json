@@ -1,0 +1,22 @@
+{
+  "image": "IMG_0001.jpg",
+  "capture": {
+    "device": "smartphone model",
+    "background": "desk",
+    "lighting": "indoor",
+    "notes": "5 pills separated on a desk"
+  },
+  "allowed_pill_ids": [
+    "K-000000",
+    "K-000001"
+  ],
+  "pills": [
+    {
+      "pill_id": 1,
+      "class_name": "K-000000",
+      "product_name": "제품명",
+      "bbox_xyxy": [100, 120, 220, 260],
+      "notes": "AIHub K-ID. bbox is [x1, y1, x2, y2] in image pixels."
+    }
+  ]
+}

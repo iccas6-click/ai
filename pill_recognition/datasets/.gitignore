@@ -1,0 +1,14 @@
+*
+!.gitignore
+!README.md
+!evaluation/
+evaluation/*
+!evaluation/README.md
+!evaluation/real-smartphone/
+!evaluation/real-smartphone/README.md
+!evaluation/real-smartphone/annotations/
+evaluation/real-smartphone/annotations/*
+!evaluation/real-smartphone/annotations/.gitkeep
+!evaluation/real-smartphone/images/
+evaluation/real-smartphone/images/*
+!evaluation/real-smartphone/images/.gitkeep

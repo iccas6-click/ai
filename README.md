@@ -11,53 +11,65 @@ CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 
 
 ```
 ai/
-├── app/                        # FastAPI 서버 (port 8001)
-│   ├── main.py
-│   └── api/v1/
-│       ├── supplement.py       # POST /api/v1/supplement/recognize
-│       └── pill.py             # POST /api/v1/pill/recognize
-├── supplement_recognition/     # 건강기능식품 인식 파이프라인
-├── pill_recognition/           # 의약품 인식 파이프라인
-├── requirements.txt
-├── docker-compose.yml
-└── .env
+├── pill_recognition/          # 의약품 및 알약 인식 파이프라인
+│   ├── datasets/              # 로컬 학습·평가 데이터, 내용 Git 제외
+│   ├── training/              # 학습 설정과 데이터 변환·평가 스크립트
+│   ├── requirements/          # 런타임·학습 의존성
+│   └── inference/             # 학습과 분리된 추론 서비스
+│       ├── artifacts/         # 추론 모델 가중치, Git 제외
+│       ├── aihub_official_code/ # AI Hub 공식 배포 파일, Git 제외
+│       ├── outputs/           # 추론 결과, Git 제외
+│       ├── pill_recognition/  # v2: RTMDet + AI Hub ResNet retrieval/classifier
+│       └── pill_recognition_legacy/ # v1 baseline 보존
+├── supplement_recognition/    # 건강기능식품 라벨 인식 파이프라인
+└── README.md
 ```
+
+학습 데이터의 구체적인 배치 규칙은 [`pill_recognition/datasets/README.md`](./pill_recognition/datasets/README.md), RTMDet 단일 클래스 학습 흐름은 [`pill_recognition/training/rtmdet_single_class/README.md`](./pill_recognition/training/rtmdet_single_class/README.md)를 따릅니다.
 
 ---
 
-## 서버 실행
+## 공통 처리 흐름
 
-### 환경 변수 설정
-
-`.env` 파일을 `ai/` 루트에 생성:
-
-```env
-CBNUAI_API_KEY=           # 충북대 AI Gateway API 키 (1순위)
-GEMINI_API_KEY=           # Google Gemini API 키 (fallback용)
-MYSQL_HOST=localhost
-MYSQL_PORT=3306
-MYSQL_DATABASE=click_db
-MYSQL_USER=click_user
-MYSQL_PASSWORD=
+```mermaid
+flowchart LR
+    A["이미지 입력"] --> B["입력 검증"]
+    B --> C["이미지 전처리"]
+    C --> D{"인식 대상"}
+    D -->|"의약품"| E["알약 탐지 및 이미지 유사도 검색"]
+    D -->|"건강기능식품"| F["Gemini Vision 제품명 추출"]
+    E --> G["공공 제품 데이터 대조"]
+    F --> G
+    G --> H["후보·성분·함량 구조화"]
+    H --> I["신뢰도 및 확인 필요 여부 반환"]
 ```
 
-### DB 실행
+공통 원칙:
+- 인식 결과를 확정 사실이 아닌 **후보와 신뢰도**로 반환합니다.
+- 신뢰도가 낮거나 여러 제품이 유사하면 `low_confidence`, `ambiguous`, `needs_confirmation` 상태를 구분합니다.
+- 인식 실패 시에도 사용자가 제품과 성분을 직접 입력할 수 있도록 실패 원인을 구분합니다.
+
+---
+
+## 의약품 파이프라인
+
+위치: [`pill_recognition/inference/pill_recognition/`](./pill_recognition/inference/pill_recognition/)
+
+실행 방법과 환경 구성은 [`pill_recognition/inference/pill_recognition/README.md`](./pill_recognition/inference/pill_recognition/README.md)를 참고합니다.
+
+### 현재 구현 상태 (v2)
+
+- 한 이미지에서 여러 알약을 `pill` 단일 클래스로 탐지
+- RTMDet Bounding Box 기준으로 알약별 crop 생성
+- AI Hub 공식 ResNet152 feature와 1,000종 reference prototype embedding의 cosine similarity 검색
+- 결과는 제품명, 성분, 업체, 품목기준코드, 일반/전문 여부와 함께 반환
+- Gradio 데모와 FastAPI `/recognize` endpoint 제공
 
 ```bash
-docker compose up -d
+cd pill_recognition/inference
+source ../../.venv/bin/activate
+python -m pill_recognition.app
 ```
-
-### AI 서버 실행
-
-```bash
-# ai/ 루트에서 실행
-uvicorn app.main:app --reload --port 8001
-```
-
-### API 확인
-
-- Swagger: `http://localhost:8001/docs`
-- 헬스체크: `http://localhost:8001/health`
 
 ---
 
@@ -78,16 +90,34 @@ uvicorn app.main:app --reload --port 8001
   최대 2회 재시도
   ↓
 [MFDS DB 매칭]
-  FULLTEXT 검색 → RapidFuzz partial_ratio 재랭킹 (유사도 70% 이상)
+  FULLTEXT 검색 → RapidFuzz 재랭킹 + 길이 패널티 (유사도 70% 이상)
   ↓
 [성분 파싱]
   main_fnctn [브래킷] 패턴 + base_standard 비성분 필터링
   ↓
 SupplementRecognitionResult 반환
-{
-  status, product: { product_name, ingredients: [...], confidence, ... }
-}
 ```
+
+### AI 서버 실행
+
+환경 변수 설정 (`.env`):
+```env
+CBNUAI_API_KEY=           # 충북대 AI Gateway API 키 (1순위)
+GEMINI_API_KEY=           # Google Gemini API 키 (fallback용)
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=click_db
+MYSQL_USER=click_user
+MYSQL_PASSWORD=
+```
+
+```bash
+docker compose up -d
+uvicorn app.main:app --reload --port 8001
+```
+
+- Swagger: `http://localhost:8001/docs`
+- 헬스체크: `http://localhost:8001/health`
 
 ### API 엔드포인트
 
@@ -95,40 +125,25 @@ SupplementRecognitionResult 반환
 POST /api/v1/supplement/recognize
 Content-Type: multipart/form-data
 Body: image (JPG/PNG)
-
-Response:
-{
-  "request_id": "rec_supplement_xxxx",
-  "status": "completed",
-  "product": {
-    "product_code": "20230001234567",
-    "product_name": "TWK10 100억 분말",
-    "manufacturer": "...",
-    "ingredients": ["Lactobacillus plantarum TWK10 프로바이오틱스", "프로바이오틱스", "아연", ...],
-    "main_function": "...",
-    "base_standard": "...",
-    "confidence": 0.95
-  },
-  "needs_confirmation": false,
-  "warnings": []
-}
 ```
 
 ---
 
-## 의약품 파이프라인
-
-위치: [`pill_recognition/`](./pill_recognition/) — 팀원 담당
-
----
-
-## 공통 상태 및 오류 코드
+## 공통 상태 코드
 
 | 상태 | 의미 |
 |---|---|
-| `completed` | 인식 성공 |
-| `needs_confirmation` | DB 미매칭 또는 낮은 신뢰도 — 사용자 확인 필요 |
-| `failed` | 인식 실패 |
+| `queued` | 인식 요청이 접수됨 |
+| `processing` | 모델 또는 OCR이 실행 중임 |
+| `completed` | 확인 가능한 구조화 결과가 생성됨 |
+| `needs_confirmation` | 후보가 생성됐으며 사용자 확인이 필요함 |
+| `ambiguous` | 상위 후보 점수 차이가 작아 비교 확인이 필요함 |
+| `low_confidence` | 후보 점수가 낮아 직접 검색 또는 재촬영이 필요함 |
+| `no_candidate` | 제품 후보를 생성하지 못함 |
+| `partial` | 일부 이미지만 인식됨 |
+| `failed` | 결과를 생성하지 못함 |
+
+### 건강기능식품 오류 코드
 
 | 오류 코드 | 의미 |
 |---|---|
@@ -142,5 +157,5 @@ Response:
 ## 남은 작업
 
 - [ ] Backend 다중 성분 엔드포인트 연동 (`ingredients` 리스트 → `/interactions`)
-- [ ] 실제 이미지 정확도 테스트 (목표: 15~20장)
-- [ ] `src/ocr/reader.py` 제거 (EasyOCR 잔재, 미사용)
+- [ ] 실제 이미지 정확도 테스트 완료 (현재 70% — 개선 예정)
+- [ ] `supplement_recognition/src/ocr/reader.py` 제거 (EasyOCR 잔재, 미사용)
