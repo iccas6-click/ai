@@ -176,11 +176,11 @@ MYSQL_PASSWORD=
 
 ```bash
 docker compose up -d
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8002
 ```
 
-- Swagger: `http://localhost:8001/docs`
-- 헬스체크: `http://localhost:8001/health`
+- Swagger: `http://localhost:8002/docs`
+- 헬스체크: `http://localhost:8002/health`
 
 ---
 
