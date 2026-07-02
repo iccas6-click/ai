@@ -17,7 +17,7 @@ _NON_INGREDIENT_KEYWORDS = (
     "성상", "세균수", "대장균", "납", "카드뮴", "비소", "수은", "붕해", "용출",
     "총균수", "진균수", "메틸수은", "총비소", "잔류", "이물", "산가", "과산화물가",
     "수분", "회분", "조단백", "조지방", "총 플라보노이드", "CFU", "Plate Count",
-    "Yeast", "Mould", "E. coli", "S.", "Salmonella", "spp.", "TYMC",
+    "Yeast", "Mould", "E. coli", "S.", "Salmonella", "Staphylococcus", "aureus", "spp.", "TYMC",
     "Bile tolerant gram negative bacteria", "Hexane", "헥산",
     "국문", "영문", "May help", "도움을 줄 수",
 )
@@ -117,6 +117,10 @@ def parse_from_base_standard(text: str) -> list[str]:
                 abbrevs = _extract_abbrevs(candidate)
                 if abbrevs:
                     results.extend(abbrevs)
+                continue
+
+            if candidate.startswith("프로바이오틱스"):
+                results.append("프로바이오틱스")
                 continue
 
             # 괄호 안 단위/수치 제거
