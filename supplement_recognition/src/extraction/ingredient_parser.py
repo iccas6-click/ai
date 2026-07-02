@@ -17,7 +17,8 @@ _NON_INGREDIENT_KEYWORDS = (
     "성상", "세균수", "대장균", "납", "카드뮴", "비소", "수은", "붕해", "용출",
     "총균수", "진균수", "메틸수은", "총비소", "잔류", "이물", "산가", "과산화물가",
     "수분", "회분", "조단백", "조지방", "총 플라보노이드", "CFU", "Plate Count",
-    "Yeast", "Mould", "E. coli", "S.", "Hexane", "헥산",
+    "Yeast", "Mould", "E. coli", "S.", "Salmonella", "spp.", "TYMC",
+    "Bile tolerant gram negative bacteria", "Hexane", "헥산",
     "국문", "영문", "May help", "도움을 줄 수",
 )
 
@@ -53,6 +54,8 @@ def _resolve_combined(candidate: str) -> list[str]:
     m = _COMBINED_SUFFIX.search(candidate)
     if m:
         return [m.group(1).strip()]
+    if candidate.startswith("프로바이오틱스"):
+        return ["프로바이오틱스"]
     return [candidate]
 
 
@@ -100,8 +103,6 @@ def parse_from_base_standard(text: str) -> list[str]:
         line = line.strip()
         if not line:
             continue
-        if _is_non_ingredient(line):
-            continue
 
         # 번호/기호 제거
         line = _NUMBERING.sub("", line).strip()
@@ -129,6 +130,8 @@ def parse_from_base_standard(text: str) -> list[str]:
             results.extend(_resolve_combined(candidate))
 
         else:
+            if _is_non_ingredient(line):
+                continue
             # 케이스 2 (콜론 없는 영문 성분행)
             abbrevs = _extract_abbrevs(line)
             if abbrevs:
