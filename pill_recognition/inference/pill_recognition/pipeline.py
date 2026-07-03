@@ -480,7 +480,7 @@ def product_candidate_from_aihub_candidate(
         drug_shape=candidate.drug_shape,
         color_class1=candidate.color_class1,
         color_class2=candidate.color_class2,
-        matched=f"AIHub official ResNet152 classifier ({mode})",
+        matched=f"AIHub ResNet152 classifier ({mode})",
         reference_image_url=product_reference_image_url(candidate.class_name),
     )
 

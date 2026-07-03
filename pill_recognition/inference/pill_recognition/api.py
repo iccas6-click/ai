@@ -76,6 +76,7 @@ def create_app(
             "max_batch_crops": settings.max_batch_crops,
             "max_upload_bytes": settings.max_upload_bytes,
             "max_image_pixels": settings.max_image_pixels,
+            "aihub_weights": settings.aihub_weights.name if settings.aihub_weights else None,
             "retrieval_query_preprocess": settings.retrieval_query_preprocess,
             "aihub_classifier_query_preprocess": settings.aihub_classifier_query_preprocess,
             "warmup": app.state.warmup,
@@ -371,7 +372,7 @@ def recognition_policy(settings: Settings) -> str:
     if settings.recognizer == "aihub_classifier":
         return (
             "rtmdet_single_class_detector + "
-            "aihub_official_resnet152_classifier_top_k"
+            "aihub_resnet152_classifier_top_k"
         )
     if settings.recognizer == "retrieval":
         return "rtmdet_single_class_detector + aihub_resnet_retrieval_top_k"

@@ -65,6 +65,15 @@ source ../.venv/bin/activate
 python -m pill_recognition.api --host 0.0.0.0 --port 8001
 ```
 
+서버에서 synthetic scene fine-tune classifier와 synthetic-v2 detector 산출물이 준비되어 있으면 다음 스크립트가 해당 조합을 자동으로 선택합니다. 산출물이 없으면 기존 환경 변수 또는 기본 retrieval 설정을 그대로 사용합니다.
+이 자동 선택을 끄려면 `PILL_USE_BEST_LOCAL_RECOGNIZER=0`을 지정합니다.
+
+```bash
+cd /home/gyuha_lee/pill/code/ai/pill_recognition/inference
+./run_pill_service.sh api
+./run_pill_service.sh gradio
+```
+
 API 서버는 기본적으로 startup 시 pipeline warmup을 수행합니다. retrieval 모델/index와 detector를 미리 로드해 첫 사용자 요청 지연을 줄입니다. 필요하면 끌 수 있습니다.
 
 ```bash

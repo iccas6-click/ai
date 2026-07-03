@@ -332,7 +332,7 @@ def test_aihub_classifier_recognizer_merges_best_crop_variant():
     assert results[0][0].pill_id == "K-RIGHT"
     assert results[0][0].score == 92.0
     assert results[0][0].source == "aihub_resnet152_classifier"
-    assert results[0][0].matched == "AIHub official ResNet152 classifier (foreground)"
+    assert results[0][0].matched == "AIHub ResNet152 classifier (foreground)"
 
 
 def test_pipeline_can_use_aihub_official_classifier_for_crop_recognition():
