@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS supplement_info (
     intake_hint1  TEXT          COMMENT '섭취 시 주의사항',
     main_fnctn    TEXT          COMMENT '주요기능',
     base_standard TEXT          COMMENT '기준규격',
+    product_image_url TEXT      COMMENT '공식 제품 이미지 URL',
+    product_image_source_url TEXT COMMENT '공식 제품 이미지 출처 URL',
+    product_image_checked_at TIMESTAMP NULL COMMENT '공식 이미지 확인 시각',
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_prduct (prduct)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

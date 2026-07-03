@@ -28,6 +28,7 @@ class SupplementProduct(BaseModel):
     product_name: str
     manufacturer: Optional[str] = None
     product_image_url: Optional[str] = None
+    product_image_source_url: Optional[str] = None
     main_function: Optional[str] = None
     base_standard: Optional[str] = None
     ingredients: list[str] = Field(default_factory=list)  # 파싱된 성분명 리스트

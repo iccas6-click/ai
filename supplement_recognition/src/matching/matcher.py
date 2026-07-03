@@ -24,6 +24,7 @@ def match_and_enrich(product_name: str) -> SupplementProduct:
         product_name=mfds.product_name,
         manufacturer=mfds.manufacturer,
         product_image_url=mfds.product_image_url,
+        product_image_source_url=mfds.product_image_source_url,
         main_function=mfds.main_function,
         base_standard=mfds.base_standard,
         ingredients=ingredients,
