@@ -330,9 +330,54 @@ def test_aihub_classifier_recognizer_merges_best_crop_variant():
     assert classifier.calls == 1
     assert classifier.allowed_pill_ids == {"K-RIGHT"}
     assert results[0][0].pill_id == "K-RIGHT"
-    assert results[0][0].score == 92.0
+    assert results[0][0].score == 95.0
     assert results[0][0].source == "aihub_resnet152_classifier"
-    assert results[0][0].matched == "AIHub ResNet152 classifier (foreground)"
+    assert results[0][0].matched == (
+        "AIHub ResNet152 classifier (foreground) + "
+        "metadata rerank (color=하양)"
+    )
+
+
+def test_aihub_classifier_metadata_rerank_promotes_matching_visual_metadata():
+    class ColorAwareClassifier:
+        def predict_batch(self, crops_rgb, top_k, allowed_pill_ids=None):
+            return [
+                [
+                    Candidate(
+                        rank=1,
+                        class_id=0,
+                        class_name="K-RED",
+                        confidence=0.76,
+                        product_name="빨간정",
+                        drug_shape="원형",
+                        color_class1="빨강",
+                    ),
+                    Candidate(
+                        rank=2,
+                        class_id=1,
+                        class_name="K-WHITE",
+                        confidence=0.74,
+                        product_name="하얀정",
+                        drug_shape="원형",
+                        color_class1="하양",
+                    ),
+                ]
+            ]
+
+    white_round_crop = np.full((80, 80, 3), 245, dtype=np.uint8)
+
+    results = recognize_crops_with_aihub_classifier(
+        ColorAwareClassifier(),
+        [white_round_crop],
+        top_k=2,
+        query_preprocess="none",
+    )
+
+    assert [candidate.pill_id for candidate in results[0]] == ["K-WHITE", "K-RED"]
+    assert results[0][0].matched == (
+        "AIHub ResNet152 classifier (none) + "
+        "metadata rerank (color=하양, shape=원형)"
+    )
 
 
 def test_pipeline_can_use_aihub_official_classifier_for_crop_recognition():
