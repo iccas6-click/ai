@@ -17,6 +17,7 @@ class MfdsProduct:
     manufacturer: str
     main_function: str
     base_standard: str
+    product_image_url: str | None = None
     similarity: float = 0.0
 
 
