@@ -7,7 +7,7 @@ import httpx
 import mysql.connector
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 API_KEY   = os.environ["MFDS_API_KEY"]
 BASE_URL  = "https://apis.data.go.kr/1471000/HtfsInfoService03/getHtfsItem01"
