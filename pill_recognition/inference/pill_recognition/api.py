@@ -369,6 +369,8 @@ def clamp_limit(limit: int) -> int:
 
 
 def recognition_policy(settings: Settings) -> str:
+    if settings.recognizer == "codeit":
+        return "codeit10_pj1 RTMDet multi-class detector + EfficientNet-B0 CNN top-k"
     if settings.recognizer == "aihub_classifier":
         return (
             "rtmdet_single_class_detector + "

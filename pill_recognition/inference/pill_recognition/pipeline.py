@@ -41,6 +41,7 @@ class PillRecognitionPipeline:
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.detector = detector
+        self.codeit_recognizer = None
         self.retriever = retriever or self._load_retriever()
         self.aihub_classifier = aihub_classifier or self._load_aihub_classifier()
         self.vision_provider = vision_provider
@@ -88,6 +89,11 @@ class PillRecognitionPipeline:
     ) -> RecognitionResult:
         total_start = perf_counter()
         image_rgb = ensure_rgb_uint8(image_rgb)
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().recognize(
+                image_rgb,
+                top_k=self.settings.top_k,
+            )
         height, width = image_rgb.shape[:2]
         quality_start = perf_counter()
         warnings = assess_image_quality(image_rgb, context="image")
@@ -207,6 +213,11 @@ class PillRecognitionPipeline:
         crops_rgb: list[np.ndarray],
         allowed_pill_ids: set[str] | None = None,
     ) -> RecognitionResult:
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().recognize_crops_batch(
+                crops_rgb,
+                top_k=self.settings.top_k,
+            )
         total_start = perf_counter()
         preprocess_start = perf_counter()
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
@@ -308,6 +319,8 @@ class PillRecognitionPipeline:
         )
 
     def _recognizer_version(self) -> str:
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().model_version
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
             return self.retriever.model_version
         if (
@@ -327,7 +340,17 @@ class PillRecognitionPipeline:
             self.detector = self._load_detector()
         return self.detector
 
+    def _get_codeit_recognizer(self):
+        if self.codeit_recognizer is None:
+            from .codeit_adapter import CodeitPillRecognizer
+
+            self.codeit_recognizer = CodeitPillRecognizer(self.settings)
+        return self.codeit_recognizer
+
     def warmup(self, load_detector: bool = True) -> None:
+        if self.settings.recognizer == "codeit":
+            self._get_codeit_recognizer().warmup()
+            return
         if load_detector:
             self._get_detector()
         if self.settings.recognizer == "retrieval" and self.retriever is not None:

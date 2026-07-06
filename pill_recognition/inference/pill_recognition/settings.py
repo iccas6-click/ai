@@ -29,6 +29,7 @@ class Settings:
     retrieval_query_preprocess: str = "none"
     aihub_classifier_query_preprocess: str = "multi_grabcut"
     warmup_on_startup: bool = True
+    codeit_project_dir: Path = Path("/home/gyu/pill/external/codeit10_pj1")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -123,6 +124,9 @@ class Settings:
                 os.getenv("PILL_WARMUP_ON_STARTUP"),
                 default=True,
             ),
+            codeit_project_dir=Path(
+                os.getenv("CODEIT_PILL_PROJECT_DIR", "/home/gyu/pill/external/codeit10_pj1")
+            ).expanduser(),
         )
 
 
