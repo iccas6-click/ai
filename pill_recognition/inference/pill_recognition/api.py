@@ -5,7 +5,7 @@ import io
 import json
 import re
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from functools import lru_cache
 from time import perf_counter
 from typing import Callable
@@ -31,6 +31,9 @@ from .settings import Settings
 from .scope import normalize_pill_id_set, parse_allowed_pill_ids
 
 
+REQUEST_RECOGNIZERS = {"codeit", "retrieval", "aihub_classifier"}
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings.from_env()
@@ -44,6 +47,14 @@ def get_pipeline() -> PillRecognitionPipeline:
 @lru_cache(maxsize=1)
 def get_product_index() -> dict:
     return load_product_index(get_settings().aihub_mapping)
+
+
+@lru_cache(maxsize=4)
+def get_pipeline_for_recognizer(recognizer: str) -> PillRecognitionPipeline:
+    settings = get_settings()
+    if recognizer != settings.recognizer:
+        settings = replace(settings, recognizer=recognizer)
+    return PillRecognitionPipeline(settings)
 
 
 def create_app(
@@ -79,6 +90,7 @@ def create_app(
             "aihub_weights": settings.aihub_weights.name if settings.aihub_weights else None,
             "retrieval_query_preprocess": settings.retrieval_query_preprocess,
             "aihub_classifier_query_preprocess": settings.aihub_classifier_query_preprocess,
+            "request_recognizers": sorted(REQUEST_RECOGNIZERS),
             "warmup": app.state.warmup,
         }
 
@@ -88,6 +100,7 @@ def create_app(
         allowed_pill_ids: list[str] | None = Form(None),
         allowed_item_seqs: list[str] | None = Form(None),
         allowed_product_names: list[str] | None = Form(None),
+        recognizer: str | None = Form(None),
     ):
         request_start = perf_counter()
         decode_start = perf_counter()
@@ -100,7 +113,7 @@ def create_app(
             allowed_product_names=allowed_product_names,
         )
         pipeline_get_start = perf_counter()
-        pipeline = pipeline_factory()
+        pipeline = resolve_pipeline_for_request(pipeline_factory, recognizer)
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
         result = pipeline.recognize(image_rgb, allowed_pill_ids=pill_scope)
@@ -120,6 +133,7 @@ def create_app(
         allowed_pill_ids: list[str] | None = Form(None),
         allowed_item_seqs: list[str] | None = Form(None),
         allowed_product_names: list[str] | None = Form(None),
+        recognizer: str | None = Form(None),
     ):
         request_start = perf_counter()
         decode_start = perf_counter()
@@ -132,7 +146,7 @@ def create_app(
             allowed_product_names=allowed_product_names,
         )
         pipeline_get_start = perf_counter()
-        pipeline = pipeline_factory()
+        pipeline = resolve_pipeline_for_request(pipeline_factory, recognizer)
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
         result = pipeline.recognize_crop(crop_rgb, allowed_pill_ids=pill_scope)
@@ -152,6 +166,7 @@ def create_app(
         allowed_pill_ids: list[str] | None = Form(None),
         allowed_item_seqs: list[str] | None = Form(None),
         allowed_product_names: list[str] | None = Form(None),
+        recognizer: str | None = Form(None),
     ):
         request_start = perf_counter()
         settings = get_settings()
@@ -166,7 +181,7 @@ def create_app(
             allowed_product_names=allowed_product_names,
         )
         pipeline_get_start = perf_counter()
-        pipeline = pipeline_factory()
+        pipeline = resolve_pipeline_for_request(pipeline_factory, recognizer)
         pipeline_get_ms = elapsed_ms(pipeline_get_start)
         pipeline_call_start = perf_counter()
         result = pipeline.recognize_crops_batch(
@@ -366,6 +381,28 @@ class ProductRefineRequest(BaseModel):
 
 def clamp_limit(limit: int) -> int:
     return max(1, min(int(limit), 100))
+
+
+def resolve_pipeline_for_request(
+    pipeline_factory: Callable[[], PillRecognitionPipeline],
+    recognizer: str | None,
+) -> PillRecognitionPipeline:
+    requested = normalize_requested_recognizer(recognizer)
+    if requested is None:
+        return pipeline_factory()
+    return get_pipeline_for_recognizer(requested)
+
+
+def normalize_requested_recognizer(recognizer: str | None) -> str | None:
+    value = str(recognizer or "").strip().lower()
+    if not value:
+        return None
+    if value not in REQUEST_RECOGNIZERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported recognizer: {recognizer}. Use one of {sorted(REQUEST_RECOGNIZERS)}.",
+        )
+    return value
 
 
 def recognition_policy(settings: Settings) -> str:
