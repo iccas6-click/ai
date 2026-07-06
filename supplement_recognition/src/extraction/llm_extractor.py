@@ -49,8 +49,8 @@ def _build_messages(image_data: str, mime_type: str) -> list[dict]:
 
 def _call_with_retry(client: OpenAI, model: str, messages: list[dict]) -> str:
     """지정 클라이언트로 최대 _MAX_RETRIES회 재시도."""
-    last_exc: Exception | None = None
-    for attempt in range(_MAX_RETRIES + 1):
+    last_exc: Exception = RuntimeError("재시도 횟수 초과")
+    for attempt in range(max(_MAX_RETRIES + 1, 1)):
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -61,7 +61,7 @@ def _call_with_retry(client: OpenAI, model: str, messages: list[dict]) -> str:
             last_exc = e
             if attempt < _MAX_RETRIES:
                 time.sleep(_RETRY_DELAY * (2 ** attempt))
-    raise last_exc  # type: ignore[misc]
+    raise last_exc
 
 
 def extract_product_name(image_path: Path | str) -> str:
