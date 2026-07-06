@@ -64,9 +64,9 @@ flowchart LR
     A["이미지 입력"] --> B["입력 검증"]
     B --> C["이미지 전처리"]
     C --> D{"인식 대상"}
-    D -->|"의약품"| E["알약 탐지 및 이미지 유사도 검색"]
+    D -->|"의약품"| E["알약 탐지 및 recognizer 선택"]
     D -->|"건강기능식품"| F["Gemini Vision 제품명 추출"]
-    E --> G["공공 제품 데이터 대조"]
+    E --> G["AIHub/Codeit 제품 데이터 대조"]
     F --> G
     G --> H["후보·성분·함량 구조화"]
     H --> I["신뢰도 및 확인 필요 여부 반환"]
@@ -89,14 +89,19 @@ flowchart LR
 
 - 한 이미지에서 여러 알약을 `pill` 단일 클래스로 탐지
 - RTMDet Bounding Box 기준으로 알약별 crop 생성
-- AI Hub 공식 ResNet152 feature와 1,000종 reference prototype embedding의 cosine similarity 검색
+- 요청 또는 환경변수로 인식 엔진 선택
+  - `retrieval`: RTMDet + AIHub ResNet152 feature retrieval
+  - `aihub_classifier`: RTMDet + AIHub 공식 1,000-class classifier
+  - `codeit`: `ZerofZero/codeit10_pj1` 기반 RTMDet + EfficientNet classifier
+- retrieval/classifier 후보는 색상·모양·제형 metadata로 재정렬 가능
 - 결과는 제품명, 성분, 업체, 품목기준코드, 일반/전문 여부와 함께 반환
-- Gradio 데모와 FastAPI `/recognize` endpoint 제공
+- FastAPI `/recognize`, `/crops/recognize`, `/crops/recognize-batch` endpoint 제공
+- 독립 pill API는 multipart form field `recognizer=codeit|retrieval|aihub_classifier`로 요청별 엔진 선택 가능
 
 ```bash
 cd pill_recognition/inference
 source ../../.venv/bin/activate
-python -m pill_recognition.app
+python -m pill_recognition.api --host 0.0.0.0 --port 8001
 ```
 
 ---
@@ -119,13 +124,17 @@ python -m pill_recognition.app
   최대 2회 재시도 (지수 백오프)
   ↓
 [MFDS DB 매칭]  mfds_client.py
-  MySQL FULLTEXT (ngram) 상위 30개 후보 → RapidFuzz + 길이 패널티 재랭킹
+  MySQL FULLTEXT (ngram) 상위 후보 → RapidFuzz + 길이 패널티 재랭킹
+  FULLTEXT 실패 시 LIKE/RapidFuzz fallback
   유사도 70% 미만이면 needs_confirmation 반환
   ↓
 [성분 파싱]  ingredient_parser.py
   main_fnctn: [성분명] 브래킷 패턴 추출
   base_standard: 비성분 키워드 필터링 후 콜론 앞 성분명 추출
   복합 성분(의 합), 영문 약어(DHA/EPA) 처리
+  ↓
+[공식 이미지 보강]  enrichment/official_image_lookup.py
+  MFDS/공식 원문에 있는 제품 이미지 URL을 함께 반환
   ↓
 SupplementRecognitionResult 반환
   { status, product: { product_name, ingredients: [...], confidence }, needs_confirmation }
@@ -154,6 +163,8 @@ Response:
     "product_code": "20230001234567",
     "product_name": "센트룸 실버 맨",
     "manufacturer": "...",
+    "product_image_url": "https://...",
+    "product_image_source_url": "https://...",
     "ingredients": ["비타민A", "비타민C", "아연", ...],
     "confidence": 0.97
   },
@@ -211,6 +222,8 @@ uvicorn app.main:app --reload --port 8001
 
 ## 남은 작업
 
-- [ ] Backend 다중 성분 엔드포인트 연동 (`ingredients` 리스트 → `/interactions`)
-- [ ] 실제 이미지 정확도 테스트 완료 (현재 70% — 개선 예정)
+- [x] Backend 다중 성분 엔드포인트 연동 (`ingredients` 리스트 → `/api/v1/interactions/analyze`)
+- [x] 제품 공식 이미지 URL 응답
+- [x] 알약 인식 엔진 요청별 선택
+- [ ] 실제 이미지 정확도 테스트 확대
 - [ ] `supplement_recognition/src/ocr/reader.py` 제거 (EasyOCR 잔재, 미사용)

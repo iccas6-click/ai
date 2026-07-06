@@ -24,7 +24,7 @@ from .schemas import (
 from .settings import Settings
 from .query_preprocess import preprocess_query_crop
 from .vision_providers import create_vision_provider
-from .visual_features import estimate_crop_visual_features
+from .visual_features import CropVisualFeatures, estimate_crop_visual_features
 from pill_recognition_legacy.aihub_classifier import AIHubPillClassifier
 from pill_recognition_legacy.schemas import Candidate
 
@@ -41,6 +41,7 @@ class PillRecognitionPipeline:
     ) -> None:
         self.settings = settings or Settings.from_env()
         self.detector = detector
+        self.codeit_recognizer = None
         self.retriever = retriever or self._load_retriever()
         self.aihub_classifier = aihub_classifier or self._load_aihub_classifier()
         self.vision_provider = vision_provider
@@ -88,6 +89,11 @@ class PillRecognitionPipeline:
     ) -> RecognitionResult:
         total_start = perf_counter()
         image_rgb = ensure_rgb_uint8(image_rgb)
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().recognize(
+                image_rgb,
+                top_k=self.settings.top_k,
+            )
         height, width = image_rgb.shape[:2]
         quality_start = perf_counter()
         warnings = assess_image_quality(image_rgb, context="image")
@@ -207,6 +213,11 @@ class PillRecognitionPipeline:
         crops_rgb: list[np.ndarray],
         allowed_pill_ids: set[str] | None = None,
     ) -> RecognitionResult:
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().recognize_crops_batch(
+                crops_rgb,
+                top_k=self.settings.top_k,
+            )
         total_start = perf_counter()
         preprocess_start = perf_counter()
         crops = [ensure_rgb_uint8(crop) for crop in crops_rgb]
@@ -308,6 +319,8 @@ class PillRecognitionPipeline:
         )
 
     def _recognizer_version(self) -> str:
+        if self.settings.recognizer == "codeit":
+            return self._get_codeit_recognizer().model_version
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
             return self.retriever.model_version
         if (
@@ -327,7 +340,17 @@ class PillRecognitionPipeline:
             self.detector = self._load_detector()
         return self.detector
 
+    def _get_codeit_recognizer(self):
+        if self.codeit_recognizer is None:
+            from .codeit_adapter import CodeitPillRecognizer
+
+            self.codeit_recognizer = CodeitPillRecognizer(self.settings)
+        return self.codeit_recognizer
+
     def warmup(self, load_detector: bool = True) -> None:
+        if self.settings.recognizer == "codeit":
+            self._get_codeit_recognizer().warmup()
+            return
         if load_detector:
             self._get_detector()
         if self.settings.recognizer == "retrieval" and self.retriever is not None:
@@ -422,6 +445,7 @@ def recognize_crops_with_aihub_classifier(
     if not valid_pairs:
         return results
 
+    crop_features = {index: estimate_crop_visual_features(crop) for index, crop in valid_pairs}
     modes = query_preprocess_modes(query_preprocess)
     variant_images = []
     variant_owners = []
@@ -437,24 +461,35 @@ def recognize_crops_with_aihub_classifier(
         top_k=max(top_k * 8, 20),
         allowed_pill_ids=allowed_pill_ids,
     )
-    by_crop: dict[int, dict[str, tuple[Candidate, str]]] = {
+    by_crop: dict[int, dict[str, tuple[Candidate, str, float, list[str]]]] = {
         index: {} for index, _ in valid_pairs
     }
     for owner, mode, candidates in zip(variant_owners, variant_modes, predictions):
+        features = crop_features.get(owner, CropVisualFeatures())
         for candidate in candidates:
+            reranked_score, metadata_matches = apply_classifier_metadata_rerank(
+                candidate.confidence,
+                candidate,
+                features,
+            )
             current = by_crop[owner].get(candidate.class_name)
-            if current is None or candidate.confidence > current[0].confidence:
-                by_crop[owner][candidate.class_name] = (candidate, mode)
+            if current is None or reranked_score > current[2]:
+                by_crop[owner][candidate.class_name] = (
+                    candidate,
+                    mode,
+                    reranked_score,
+                    metadata_matches,
+                )
 
     for index, _ in valid_pairs:
         ranked = sorted(
             by_crop[index].values(),
-            key=lambda item: item[0].confidence,
+            key=lambda item: item[2],
             reverse=True,
         )[:top_k]
         results[index] = [
-            product_candidate_from_aihub_candidate(rank, candidate, mode)
-            for rank, (candidate, mode) in enumerate(ranked, start=1)
+            product_candidate_from_aihub_candidate(rank, candidate, mode, score, matches)
+            for rank, (candidate, mode, score, matches) in enumerate(ranked, start=1)
         ]
     return results
 
@@ -463,11 +498,16 @@ def product_candidate_from_aihub_candidate(
     rank: int,
     candidate: Candidate,
     mode: str,
+    score: float | None = None,
+    metadata_matches: list[str] | None = None,
 ) -> ProductCandidate:
+    matched = f"AIHub ResNet152 classifier ({mode})"
+    if metadata_matches:
+        matched = f"{matched} + metadata rerank ({', '.join(metadata_matches)})"
     return ProductCandidate(
         rank=rank,
         pill_id=candidate.class_name,
-        score=round(float(candidate.confidence) * 100.0, 2),
+        score=round(max(0.0, min(float(score if score is not None else candidate.confidence), 1.0)) * 100.0, 2),
         source="aihub_resnet152_classifier",
         product_name=candidate.product_name,
         ingredient=candidate.ingredient,
@@ -480,9 +520,66 @@ def product_candidate_from_aihub_candidate(
         drug_shape=candidate.drug_shape,
         color_class1=candidate.color_class1,
         color_class2=candidate.color_class2,
-        matched=f"AIHub official ResNet152 classifier ({mode})",
+        matched=matched,
         reference_image_url=product_reference_image_url(candidate.class_name),
     )
+
+
+def apply_classifier_metadata_rerank(
+    score: float,
+    candidate: Candidate,
+    features: CropVisualFeatures,
+) -> tuple[float, list[str]]:
+    adjusted = float(score)
+    matches = []
+
+    color_adjustment, color_detail = color_metadata_adjustment(candidate, features)
+    adjusted += color_adjustment
+    if color_detail:
+        matches.append(color_detail)
+
+    shape_adjustment, shape_detail = shape_metadata_adjustment(candidate, features)
+    adjusted += shape_adjustment
+    if shape_detail:
+        matches.append(shape_detail)
+
+    return adjusted, matches
+
+
+def color_metadata_adjustment(
+    candidate: Candidate,
+    features: CropVisualFeatures,
+) -> tuple[float, str | None]:
+    feature_color = normalize_metadata_text(features.color)
+    product_colors = {
+        normalize_metadata_text(candidate.color_class1),
+        normalize_metadata_text(candidate.color_class2),
+    }
+    product_colors.discard("")
+    if not feature_color or not product_colors:
+        return 0.0, None
+    if feature_color in product_colors:
+        return 0.03, f"color={features.color}"
+    return 0.0, None
+
+
+def shape_metadata_adjustment(
+    candidate: Candidate,
+    features: CropVisualFeatures,
+) -> tuple[float, str | None]:
+    feature_shape = normalize_metadata_text(features.shape)
+    product_shape = normalize_metadata_text(candidate.drug_shape)
+    if not feature_shape or not product_shape:
+        return 0.0, None
+    if feature_shape == product_shape:
+        return 0.015, f"shape={features.shape}"
+    if {feature_shape, product_shape} <= {"타원형", "장방형"}:
+        return 0.005, f"shape~{features.shape}"
+    return 0.0, None
+
+
+def normalize_metadata_text(value: str | None) -> str:
+    return str(value or "").strip()
 
 
 def scope_warnings(warnings: list[str], candidate_scope: dict) -> list[str]:

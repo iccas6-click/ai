@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
 import mysql.connector
+from mysql.connector import Error as MySQLError
 from rapidfuzz import fuzz
+
+from supplement_recognition.src.enrichment.official_image_lookup import (
+    lookup_official_product_image,
+)
 
 
 @dataclass
@@ -15,6 +21,8 @@ class MfdsProduct:
     manufacturer: str
     main_function: str
     base_standard: str
+    product_image_url: str | None = None
+    product_image_source_url: str | None = None
     similarity: float = 0.0
 
 
@@ -29,27 +37,121 @@ def _get_conn():
     )
 
 
+def _like_terms(product_name: str) -> list[str]:
+    cleaned = re.sub(r"\s+", " ", product_name).strip()
+    terms = [cleaned]
+    terms.extend(part for part in re.split(r"[\s()/,，]+", cleaned) if len(part) >= 2)
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for term in terms:
+        key = term.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(term)
+    return unique[:8]
+
+
+def _ensure_image_columns(cursor) -> bool:
+    try:
+        cursor.execute("SHOW COLUMNS FROM supplement_info")
+        columns = {row["Field"] for row in cursor.fetchall()}
+        alters = []
+        if "product_image_url" not in columns:
+            alters.append("ADD COLUMN product_image_url TEXT COMMENT '공식 제품 이미지 URL'")
+        if "product_image_source_url" not in columns:
+            alters.append("ADD COLUMN product_image_source_url TEXT COMMENT '공식 제품 이미지 출처 URL'")
+        if "product_image_checked_at" not in columns:
+            alters.append("ADD COLUMN product_image_checked_at TIMESTAMP NULL COMMENT '공식 이미지 확인 시각'")
+        if alters:
+            cursor.execute(f"ALTER TABLE supplement_info {', '.join(alters)}")
+        return True
+    except MySQLError:
+        return False
+
+
+def _select_fields(include_image_columns: bool) -> str:
+    fields = "sttemnt_no, prduct, entrps, main_fnctn, base_standard"
+    if include_image_columns:
+        fields += ", product_image_url, product_image_source_url, product_image_checked_at"
+    return fields
+
+
+def _fetch_fulltext_candidates(
+    cursor,
+    product_name: str,
+    top_k: int,
+    include_image_columns: bool,
+) -> list[dict]:
+    cursor.execute(
+        f"SELECT {_select_fields(include_image_columns)}, "
+        "MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) AS score "
+        "FROM supplement_info "
+        "WHERE MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) "
+        "ORDER BY score DESC "
+        "LIMIT %s",
+        (product_name, product_name, top_k),
+    )
+    return cursor.fetchall()
+
+
+def _fetch_like_candidates(
+    cursor,
+    product_name: str,
+    top_k: int,
+    include_image_columns: bool,
+) -> list[dict]:
+    terms = _like_terms(product_name)
+    if not terms:
+        return []
+
+    clauses = ["prduct LIKE %s" for _ in terms]
+    params = [f"%{term}%" for term in terms]
+    cursor.execute(
+        f"SELECT {_select_fields(include_image_columns)}, 0 AS score "
+        "FROM supplement_info "
+        f"WHERE {' OR '.join(clauses)} "
+        "LIMIT %s",
+        (*params, max(top_k * 8, 80)),
+    )
+    return cursor.fetchall()
+
+
+def _cache_product_image(cursor, product_code: str, image_url: str | None, source_url: str | None) -> None:
+    try:
+        cursor.execute(
+            "UPDATE supplement_info "
+            "SET product_image_url = %s, product_image_source_url = %s, product_image_checked_at = NOW() "
+            "WHERE sttemnt_no = %s",
+            (image_url, source_url, product_code),
+        )
+    except MySQLError:
+        pass
+
+
 def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
     """
-    1단계: FULLTEXT로 제품명 기반 후보 top_k개 추출
-    2단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
+    1단계: FULLTEXT로 제품명 기반 후보 추출
+    2단계: FULLTEXT 인덱스가 없거나 후보가 없으면 LIKE 후보 추출
+    3단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
     """
+    conn = None
+    cursor = None
     try:
         conn = _get_conn()
         cursor = conn.cursor(dictionary=True)
+        include_image_columns = _ensure_image_columns(cursor)
+        if include_image_columns:
+            conn.commit()
 
-        cursor.execute(
-            "SELECT sttemnt_no, prduct, entrps, main_fnctn, base_standard, "
-            "MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) AS score "
-            "FROM supplement_info "
-            "WHERE MATCH(prduct) AGAINST(%s IN BOOLEAN MODE) "
-            "ORDER BY score DESC "
-            "LIMIT %s",
-            (product_name, product_name, top_k),
-        )
-        candidates = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        try:
+            candidates = _fetch_fulltext_candidates(cursor, product_name, top_k, include_image_columns)
+        except MySQLError:
+            candidates = []
+
+        if not candidates:
+            candidates = _fetch_like_candidates(cursor, product_name, top_k, include_image_columns)
 
         if not candidates:
             return None
@@ -66,6 +168,16 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
 
         best = max(candidates, key=lambda r: _score(r["prduct"]))
         best["_similarity"] = _score(best["prduct"])
+        image_url = best.get("product_image_url")
+        image_source_url = best.get("product_image_source_url")
+        has_image_lookup_key = bool(os.environ.get("GEMINI_API_KEY", "").strip())
+        if include_image_columns and has_image_lookup_key and not image_url and not best.get("product_image_checked_at"):
+            image = lookup_official_product_image(best["prduct"].strip(), best["entrps"])
+            if image:
+                image_url = image.image_url
+                image_source_url = image.source_url
+            _cache_product_image(cursor, best["sttemnt_no"], image_url, image_source_url)
+            conn.commit()
 
         return MfdsProduct(
             product_code=best["sttemnt_no"],
@@ -73,7 +185,14 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             manufacturer=best["entrps"],
             main_function=best["main_fnctn"],
             base_standard=best["base_standard"],
+            product_image_url=image_url,
+            product_image_source_url=image_source_url,
             similarity=best["_similarity"],
         )
     except Exception:
         return None
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

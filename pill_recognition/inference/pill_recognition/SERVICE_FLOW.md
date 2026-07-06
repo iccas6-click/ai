@@ -7,7 +7,10 @@
 실서비스 인식은 "LLM에게 사진을 보여주고 정답을 묻는 방식"으로 운영하지 않습니다.
 
 1. RTMDet는 여러 알약의 위치를 찾는 detector로만 사용합니다.
-2. 각 crop은 AIHub ResNet152 retrieval index에서 제품 후보 Top-3로 검색합니다.
+2. 각 crop은 선택된 recognizer에서 제품 후보 Top-3로 검색합니다.
+   - `retrieval`: AIHub ResNet152 retrieval
+   - `aihub_classifier`: AIHub 공식 1,000-class classifier
+   - `codeit`: `ZerofZero/codeit10_pj1` 기반 Codeit demo recognizer
 3. 성분, 업체, 각인, 색상, 기준 이미지는 AIHub metadata에서 조회합니다.
 4. 후보가 애매하면 각인 입력, 반대면 crop, 수동 검색으로 재확인합니다.
 5. 최종 복용 여부와 상호작용 판정은 별도 약물 안전 서비스에서 처리합니다.
@@ -47,6 +50,14 @@ flowchart TD
 | `POST /products/refine` | 이미지 후보와 각인/색/모양/텍스트 근거를 합쳐 재정렬 | 아니오 | 후보 확정 전 최종 보정 |
 | `GET /health` | 서버 정책과 상태 확인 | 아니오 | 앱 초기화, 운영 모니터링 |
 
+독립 pill API의 `/recognize`, `/crops/recognize`, `/crops/recognize-batch`는 multipart form field `recognizer`를 받을 수 있습니다.
+
+```text
+recognizer=codeit | retrieval | aihub_classifier
+```
+
+통합 AI 앱의 `/api/v1/pill/recognize` 래퍼는 현재 서버 기본 recognizer를 사용합니다. 프론트에서 인식 엔진 토글을 직접 적용하려면 독립 pill API endpoint를 사용합니다.
+
 ## Status Contract
 
 | Status | 의미 | 앱 권장 액션 |
@@ -63,6 +74,7 @@ flowchart TD
 1. 사용자가 한 장에 여러 알약을 겹치지 않게 놓고 촬영합니다.
 2. 복약목록이 있으면 앱/백엔드는 `POST /products/scope/resolve`로 K-ID, 품목기준코드, 제품명을 `allowed_pill_ids`로 변환합니다. 간단한 앱 구현에서는 이 단계를 생략하고 `/recognize`에 `allowed_item_seqs` 또는 `allowed_product_names`를 바로 넣어도 됩니다.
 3. 앱은 원본 이미지를 `POST /recognize`로 보냅니다. `allowed_pill_ids`, `allowed_item_seqs`, `allowed_product_names`가 있으면 함께 보내 retrieval 검색 범위를 먼저 줄입니다.
+   - 데모 또는 비교 테스트에서는 `recognizer=codeit`, `recognizer=retrieval`처럼 요청별 엔진을 명시할 수 있습니다.
 4. 응답의 `detections`를 화면에 bbox 또는 번호로 표시합니다.
 5. 응답의 `candidate_scope.retrieval_id_match_count`가 0이면 복약목록 K-ID 매핑 오류로 보고 직접 검색 또는 복약목록 수정 UI로 보냅니다.
 6. 응답의 `warnings`에 촬영 품질 문제가 있으면 먼저 재촬영 안내를 표시합니다.
@@ -138,9 +150,11 @@ flowchart TD
 | 후보 최소 점수 | 70 | `PILL_CANDIDATE_MIN_SCORE` |
 | 모호성 margin | 3 | `PILL_CANDIDATE_AMBIGUITY_MARGIN` |
 | retrieval query 전처리 | `none` | `PILL_RETRIEVAL_QUERY_PREPROCESS` |
+| 기본 recognizer | `retrieval` | `PILL_RECOGNIZER` |
+| Codeit 프로젝트 경로 | `/home/gyu/pill/external/codeit10_pj1` | `CODEIT_PILL_PROJECT_DIR` |
 | API startup warmup | enabled | `PILL_WARMUP_ON_STARTUP` |
 
-`GET /health`는 현재 `recognizer`, `top_k`, `max_batch_crops`, `max_upload_bytes`, `max_image_pixels`, `retrieval_query_preprocess`, `warmup`을 반환합니다. 프론트는 앱 시작 시 이 값을 읽어 업로드 UI 제한과 촬영 후 리사이즈 정책에 반영할 수 있습니다.
+`GET /health`는 현재 `recognizer`, `request_recognizers`, `top_k`, `max_batch_crops`, `max_upload_bytes`, `max_image_pixels`, `retrieval_query_preprocess`, `warmup`을 반환합니다. 프론트는 앱 시작 시 이 값을 읽어 업로드 UI 제한, 촬영 후 리사이즈 정책, 인식 엔진 토글 노출 여부에 반영할 수 있습니다.
 
 ## Capture Quality Warnings
 
