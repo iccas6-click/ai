@@ -11,7 +11,7 @@ def match_and_enrich(product_name: str) -> SupplementProduct:
     """제품명으로 FULLTEXT + RapidFuzz 매칭 후 SupplementProduct 반환."""
     mfds = search_product(product_name)
 
-    if mfds is None or mfds.similarity < _SIMILARITY_THRESHOLD:
+    if mfds is None or mfds.similarity is None or mfds.similarity < _SIMILARITY_THRESHOLD:
         return SupplementProduct(
             product_name=product_name[:100],
             confidence=0.0,
