@@ -24,6 +24,11 @@ class MfdsProduct:
     product_image_url: str | None = None
     product_image_source_url: str | None = None
     similarity: float = 0.0
+    prebuilt_ingredients: list[str] = None  # supplement_product_markers에서 조회
+
+    def __post_init__(self):
+        if self.prebuilt_ingredients is None:
+            self.prebuilt_ingredients = []
 
 
 def _get_conn():
@@ -72,10 +77,23 @@ def _ensure_image_columns(cursor) -> bool:
 
 
 def _select_fields(include_image_columns: bool) -> str:
-    fields = "sttemnt_no, prduct, entrps, main_fnctn, base_standard"
+    fields = "id, sttemnt_no, prduct, entrps, main_fnctn, base_standard"
     if include_image_columns:
         fields += ", product_image_url, product_image_source_url, product_image_checked_at"
     return fields
+
+
+def _fetch_markers(cursor, supplement_info_id: int) -> list[str]:
+    """supplement_product_markers에서 파싱된 성분명 조회. 테이블 없으면 빈 리스트."""
+    try:
+        cursor.execute(
+            "SELECT marker_text FROM supplement_product_markers "
+            "WHERE supplement_info_id = %s ORDER BY marker_id",
+            (supplement_info_id,),
+        )
+        return [row["marker_text"] for row in cursor.fetchall()]
+    except MySQLError:
+        return []
 
 
 def _fetch_fulltext_candidates(
@@ -179,6 +197,9 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             _cache_product_image(cursor, best["sttemnt_no"], image_url, image_source_url)
             conn.commit()
 
+        # supplement_product_markers 테이블에서 파싱된 성분 조회 (없으면 빈 리스트)
+        markers = _fetch_markers(cursor, best["id"]) if "id" in best else []
+
         return MfdsProduct(
             product_code=best["sttemnt_no"],
             product_name=best["prduct"].strip(),
@@ -188,6 +209,7 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             product_image_url=image_url,
             product_image_source_url=image_source_url,
             similarity=best["_similarity"],
+            prebuilt_ingredients=markers,
         )
     except Exception:
         return None

@@ -17,7 +17,11 @@ def match_and_enrich(product_name: str) -> SupplementProduct:
             confidence=0.0,
         )
 
-    ingredients = extract_ingredients(mfds.main_function, mfds.base_standard)
+    # markers 테이블에 미리 파싱된 성분이 있으면 사용, 없으면 런타임 파싱
+    if mfds.prebuilt_ingredients:
+        ingredients = mfds.prebuilt_ingredients
+    else:
+        ingredients = extract_ingredients(mfds.main_function, mfds.base_standard)
 
     return SupplementProduct(
         product_code=mfds.product_code,
