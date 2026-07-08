@@ -32,13 +32,15 @@ def recognize(image_path: Path | str, request_id: str | None = None) -> Suppleme
     try:
         product_name = extract_product_name(processed_path)
     except Exception as e:
+        if processed_path != Path(image_path) and processed_path.exists():
+            processed_path.unlink()
         return SupplementRecognitionResult(
             request_id=rid,
             status=RecognitionStatus.FAILED,
             error_code=ErrorCode.MODEL_INFERENCE_FAILED,
             error_detail=str(e),
         )
-    finally:
+    else:
         # 전처리 임시 파일 삭제
         if processed_path != Path(image_path) and processed_path.exists():
             processed_path.unlink()
