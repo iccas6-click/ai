@@ -7,9 +7,9 @@ from supplement_recognition.src.schema.result import SupplementProduct
 _SIMILARITY_THRESHOLD = 70
 
 
-def match_and_enrich(product_name: str) -> SupplementProduct:
+def match_and_enrich(product_name: str, brand_hint: str | None = None) -> SupplementProduct:
     """제품명으로 FULLTEXT + RapidFuzz 매칭 후 SupplementProduct 반환."""
-    mfds = search_product(product_name)
+    mfds = search_product(product_name, brand_hint=brand_hint)
 
     if mfds is None or mfds.similarity is None or mfds.similarity < _SIMILARITY_THRESHOLD:
         return SupplementProduct(
@@ -17,7 +17,11 @@ def match_and_enrich(product_name: str) -> SupplementProduct:
             confidence=0.0,
         )
 
-    ingredients = extract_ingredients(mfds.main_function, mfds.base_standard)
+    # markers 테이블에 미리 파싱된 성분이 있으면 사용, 없으면 런타임 파싱
+    if mfds.prebuilt_ingredients:
+        ingredients = mfds.prebuilt_ingredients
+    else:
+        ingredients = extract_ingredients(mfds.main_function, mfds.base_standard)
 
     return SupplementProduct(
         product_code=mfds.product_code,

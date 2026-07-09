@@ -7,7 +7,7 @@ from typing import Optional
 
 import mysql.connector
 from mysql.connector import Error as MySQLError
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils as fuzz_utils
 
 from supplement_recognition.src.enrichment.official_image_lookup import (
     lookup_official_product_image,
@@ -24,6 +24,11 @@ class MfdsProduct:
     product_image_url: str | None = None
     product_image_source_url: str | None = None
     similarity: float = 0.0
+    prebuilt_ingredients: list[str] = None  # supplement_product_markers에서 조회
+
+    def __post_init__(self):
+        if self.prebuilt_ingredients is None:
+            self.prebuilt_ingredients = []
 
 
 def _get_conn():
@@ -35,6 +40,11 @@ def _get_conn():
         password=os.environ["MYSQL_PASSWORD"],
         charset="utf8mb4",
     )
+
+
+def _normalize_query(name: str) -> str:
+    """단일 알파벳·숫자가 앞 토큰과 공백으로 분리된 경우 붙임: '메가도스 B' → '메가도스B'."""
+    return re.sub(r"(\w)\s+([A-Za-z0-9])(?=\s|$)", r"\1\2", name)
 
 
 def _like_terms(product_name: str) -> list[str]:
@@ -72,10 +82,23 @@ def _ensure_image_columns(cursor) -> bool:
 
 
 def _select_fields(include_image_columns: bool) -> str:
-    fields = "sttemnt_no, prduct, entrps, main_fnctn, base_standard"
+    fields = "id, sttemnt_no, prduct, entrps, main_fnctn, base_standard"
     if include_image_columns:
         fields += ", product_image_url, product_image_source_url, product_image_checked_at"
     return fields
+
+
+def _fetch_markers(cursor, supplement_info_id: int) -> list[str]:
+    """supplement_product_markers에서 파싱된 성분명 조회. 테이블 없으면 빈 리스트."""
+    try:
+        cursor.execute(
+            "SELECT marker_text FROM supplement_product_markers "
+            "WHERE supplement_info_id = %s ORDER BY marker_id",
+            (supplement_info_id,),
+        )
+        return [row["marker_text"] for row in cursor.fetchall()]
+    except MySQLError:
+        return []
 
 
 def _fetch_fulltext_candidates(
@@ -130,12 +153,16 @@ def _cache_product_image(cursor, product_code: str, image_url: str | None, sourc
         pass
 
 
-def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
+def search_product(product_name: str, top_k: int = 30, brand_hint: str | None = None) -> Optional[MfdsProduct]:
     """
     1단계: FULLTEXT로 제품명 기반 후보 추출
     2단계: FULLTEXT 인덱스가 없거나 후보가 없으면 LIKE 후보 추출
     3단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
+    brand_hint: Gemini가 추출한 브랜드명 — 일치 시 보너스, 불일치 시 패널티 적용
     """
+    # 단일 알파벳/숫자가 앞 토큰과 공백으로 분리된 경우 붙임 ('메가도스 B' → '메가도스B')
+    normalized_name = _normalize_query(product_name)
+
     conn = None
     cursor = None
     try:
@@ -146,25 +173,35 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             conn.commit()
 
         try:
-            candidates = _fetch_fulltext_candidates(cursor, product_name, top_k, include_image_columns)
+            candidates = _fetch_fulltext_candidates(cursor, normalized_name, top_k, include_image_columns)
         except MySQLError:
             candidates = []
 
         if not candidates:
-            candidates = _fetch_like_candidates(cursor, product_name, top_k, include_image_columns)
+            candidates = _fetch_like_candidates(cursor, normalized_name, top_k, include_image_columns)
 
         if not candidates:
             return None
 
+        # 브랜드 힌트 정규화 (비교 시 공백·대소문자 무시)
+        brand_normalized = brand_hint.replace(" ", "").lower() if brand_hint else None
+
         def _score(candidate_name: str) -> float:
-            # partial_ratio만 쓰면 짧은 쿼리가 긴 제품명 안에 부분 포함될 때 100점을 줘서
-            # 엉뚱한 제품이 매칭되는 문제가 있음.
-            # length_ratio로 길이 차이에 패널티를 주어 보정.
-            partial = fuzz.partial_ratio(product_name, candidate_name)
-            length_ratio = min(len(product_name), len(candidate_name)) / max(
-                len(product_name), len(candidate_name), 1
+            token_set = fuzz.token_set_ratio(normalized_name, candidate_name)
+            partial = fuzz.partial_ratio(normalized_name, candidate_name)
+            length_ratio = min(len(normalized_name), len(candidate_name)) / max(
+                len(normalized_name), len(candidate_name), 1
             )
-            return partial * (0.5 + 0.5 * length_ratio)
+            base = token_set * 0.6 + partial * 0.4
+            score = base * (0.7 + 0.3 * length_ratio)
+
+            # 브랜드 보정: 같은 브랜드면 미세 보너스 (DB에 브랜드명 없는 경우 패널티 금지)
+            if brand_normalized and len(brand_normalized) >= 2:
+                cand_normalized = candidate_name.replace(" ", "").lower()
+                if brand_normalized in cand_normalized:
+                    score *= 1.05
+
+            return min(score, 100.0)
 
         best = max(candidates, key=lambda r: _score(r["prduct"]))
         best["_similarity"] = _score(best["prduct"])
@@ -179,6 +216,9 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             _cache_product_image(cursor, best["sttemnt_no"], image_url, image_source_url)
             conn.commit()
 
+        # supplement_product_markers 테이블에서 파싱된 성분 조회 (없으면 빈 리스트)
+        markers = _fetch_markers(cursor, best["id"]) if "id" in best else []
+
         return MfdsProduct(
             product_code=best["sttemnt_no"],
             product_name=best["prduct"].strip(),
@@ -188,6 +228,7 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             product_image_url=image_url,
             product_image_source_url=image_source_url,
             similarity=best["_similarity"],
+            prebuilt_ingredients=markers,
         )
     except Exception:
         return None
@@ -196,3 +237,73 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             cursor.close()
         if conn:
             conn.close()
+
+
+def search_top_products(product_name: str, top_k: int = 5) -> list[MfdsProduct]:
+    """동명이제 감지용 — 유사도 상위 N개 반환 (score 차이 10 이내, 다른 제조사)."""
+    normalized_name = _normalize_query(product_name)
+    conn = None
+    cursor = None
+    try:
+        conn = _get_conn()
+        cursor = conn.cursor(dictionary=True)
+        include_image_columns = _ensure_image_columns(cursor)
+        if include_image_columns:
+            conn.commit()
+
+        try:
+            candidates = _fetch_fulltext_candidates(cursor, normalized_name, 50, include_image_columns)
+        except Exception:
+            candidates = []
+        if not candidates:
+            candidates = _fetch_like_candidates(cursor, normalized_name, 50, include_image_columns)
+        if not candidates:
+            return []
+
+        def _score(name: str) -> float:
+            token_set = fuzz.token_set_ratio(normalized_name, name)
+            partial = fuzz.partial_ratio(normalized_name, name)
+            length_ratio = min(len(normalized_name), len(name)) / max(len(normalized_name), len(name), 1)
+            base = token_set * 0.6 + partial * 0.4
+            return base * (0.7 + 0.3 * length_ratio)
+
+        scored = [(r, _score(r["prduct"])) for r in candidates]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        best_score = scored[0][1] if scored else 0
+        results = []
+        seen_names: set[str] = set()
+        for row, score in scored:
+            if score < _SIMILARITY_THRESHOLD:
+                break
+            if score < best_score - 10:
+                break
+            name_key = row["prduct"].strip().lower()
+            if name_key in seen_names:
+                continue
+            seen_names.add(name_key)
+            markers = _fetch_markers(cursor, row["id"]) if "id" in row else []
+            results.append(MfdsProduct(
+                product_code=row["sttemnt_no"],
+                product_name=row["prduct"].strip(),
+                manufacturer=row["entrps"],
+                main_function=row["main_fnctn"],
+                base_standard=row["base_standard"],
+                product_image_url=row.get("product_image_url"),
+                product_image_source_url=row.get("product_image_source_url"),
+                similarity=score,
+                prebuilt_ingredients=markers,
+            ))
+            if len(results) >= top_k:
+                break
+        return results
+    except Exception:
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+_SIMILARITY_THRESHOLD = 70

@@ -18,6 +18,7 @@ _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 async def recognize_supplement(image: UploadFile = File(...)):
     """
     건강기능식품 라벨 이미지를 업로드하면 제품명, 성분 정보를 반환합니다.
+    성분명은 한국어(식약처 기준)로 반환 — 번역은 백엔드에서 처리합니다.
     """
     ext = Path(image.filename).suffix.lower()
     if ext not in {".jpg", ".jpeg", ".png"}:
