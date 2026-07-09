@@ -457,26 +457,29 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
     while len(like_params) < 4:
         like_params.append("__NO_MATCH__")
 
-    cursor.execute(
-        """
-        SELECT cde.canonical_name_ko, cde.canonical_name_en, ppi.ingredient_name
-        FROM pill_product_ingredients ppi
-        JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
-        WHERE ppi.product_name = %s
-           OR ppi.normalized_product_name = %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-        ORDER BY ppi.id
-        LIMIT 12
-        """,
-        (product_name, keys[0], *like_params),
-    )
+    try:
+        cursor.execute(
+            """
+            SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en, ppi.ingredient_name
+            FROM pill_products pp
+            JOIN pill_product_ingredients ppi ON ppi.pill_product_id = pp.pill_product_id
+            JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
+            WHERE pp.product_name = %s
+               OR pp.product_name_normalized = %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+            LIMIT 12
+            """,
+            (product_name, keys[0], *like_params),
+        )
+    except Exception:
+        return [], "not_found", None, {}
     rows = cursor.fetchall()
     ingredients = _clean_unique(
         [
-            row.get("canonical_name_ko") or row.get("canonical_name_en") or row.get("ingredient_name")
+            row.get("canonical_drug_name_ko") or row.get("canonical_drug_name_en") or row.get("ingredient_name")
             for row in rows
         ]
     )
@@ -514,22 +517,27 @@ def _lookup_canonical_ingredients(cursor, names: list[str]) -> list[str]:
     resolved: list[str] = []
     for name in _clean_unique(names):
         normalized = _normalize_match_key(name)
-        cursor.execute(
-            """
-            SELECT canonical_name_ko, canonical_name_en
-            FROM canonical_drug_entities
-            WHERE canonical_name_ko = %s
-               OR LOWER(canonical_name_en) = LOWER(%s)
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(canonical_name_ko), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') = %s
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(canonical_name_en), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') = %s
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(raw_aliases), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') LIKE %s
-            LIMIT 4
-            """,
-            (name, name, normalized, normalized, f"%{normalized}%"),
-        )
+        try:
+            cursor.execute(
+                """
+                SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en
+                FROM canonical_drug_entities cde
+                LEFT JOIN drug_aliases da ON da.canonical_drug_id = cde.canonical_drug_id
+                WHERE cde.canonical_drug_name_ko = %s
+                   OR LOWER(cde.canonical_drug_name_en) = LOWER(%s)
+                   OR REPLACE(REPLACE(REPLACE(LOWER(cde.canonical_drug_name_ko), ' ', ''), '-', ''), '.', '') = %s
+                   OR REPLACE(REPLACE(REPLACE(LOWER(cde.canonical_drug_name_en), ' ', ''), '-', ''), '.', '') = %s
+                   OR da.alias_name_normalized LIKE %s
+                LIMIT 4
+                """,
+                (name, name, normalized, normalized, f"%{normalized}%"),
+            )
+        except Exception:
+            resolved.append(name)
+            continue
         rows = cursor.fetchall()
         if rows:
-            resolved.extend(row.get("canonical_name_ko") or row.get("canonical_name_en") for row in rows)
+            resolved.extend(row.get("canonical_drug_name_ko") or row.get("canonical_drug_name_en") for row in rows)
         else:
             resolved.append(name)
     return _clean_unique(resolved)
