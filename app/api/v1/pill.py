@@ -1,62 +1,44 @@
 from __future__ import annotations
 
-import sys
+import shutil
+import uuid
 from pathlib import Path
-from time import perf_counter
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from app.services.prescription_recognition import recognize_prescription_document
 
 router = APIRouter()
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-PILL_INFERENCE_ROOT = REPO_ROOT / "pill_recognition" / "inference"
-if str(PILL_INFERENCE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PILL_INFERENCE_ROOT))
+_UPLOAD_DIR = Path("/tmp/pill_document_uploads")
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.post("/pill/recognize")
 async def recognize_pill(
     file: UploadFile = File(...),
+    recognizer: str | None = Form(None),
     allowed_pill_ids: list[str] | None = Form(None),
     allowed_item_seqs: list[str] | None = Form(None),
     allowed_product_names: list[str] | None = Form(None),
 ):
-    """알약 인식 엔드포인트.
+    """처방전/약봉투 문서 이미지에서 복용 의약품과 성분 후보를 추출한다.
 
-    Gradio/전용 API에서 쓰는 RTMDet + AIHub retrieval 파이프라인을 통합 AI
-    서버에서도 동일하게 호출한다.
+    기존 프론트가 보내던 form field는 호환성 때문에 유지하지만, 개별 알약
+    detector/레거시 코드 선택값으로는 사용하지 않는다.
     """
-    from pill_recognition.api import (
-        attach_api_timings,
-        attach_input_scope_resolution,
-        elapsed_ms,
-        get_pipeline,
-        get_product_index,
-        read_upload_image,
-        resolve_allowed_scope_from_form,
-    )
+    _ = (recognizer, allowed_pill_ids, allowed_item_seqs, allowed_product_names)
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="JPG, PNG, WEBP 파일만 지원합니다.")
 
-    request_start = perf_counter()
-    decode_start = perf_counter()
-    image_rgb = await read_upload_image(file)
-    decode_ms = elapsed_ms(decode_start)
-    pill_scope, input_scope_resolution = resolve_allowed_scope_from_form(
-        get_product_index,
-        allowed_pill_ids=allowed_pill_ids,
-        allowed_item_seqs=allowed_item_seqs,
-        allowed_product_names=allowed_product_names,
-    )
-    pipeline_get_start = perf_counter()
-    pipeline = get_pipeline()
-    pipeline_get_ms = elapsed_ms(pipeline_get_start)
-    pipeline_call_start = perf_counter()
-    result = pipeline.recognize(image_rgb, allowed_pill_ids=pill_scope)
-    attach_api_timings(
-        result,
-        request_start=request_start,
-        upload_decode_ms=decode_ms,
-        pipeline_get_ms=pipeline_get_ms,
-        pipeline_call_ms=elapsed_ms(pipeline_call_start),
-    )
-    attach_input_scope_resolution(result, input_scope_resolution)
-    return result.to_dict()
+    tmp_path = _UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
+    try:
+        with tmp_path.open("wb") as handle:
+            shutil.copyfileobj(file.file, handle)
+        return recognize_prescription_document(tmp_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()

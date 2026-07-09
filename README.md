@@ -7,6 +7,17 @@ CLICK 서비스에서 사용하는 **의약품 인식**과 **건강기능식품 
 
 ---
 
+## 이번 브랜치의 main 대비 변경점
+
+- `/api/v1/pill/recognize`를 낱알 탐지 중심에서 처방전·약봉투·복약 안내문 문서 인식 중심으로 전환했습니다.
+- 기존 프론트가 보내는 `recognizer`, `allowed_pill_ids`, `allowed_item_seqs`, `allowed_product_names` form field는 호환성 때문에 유지하지만, 서버는 문서 인식 파이프라인만 사용합니다.
+- `app/services/prescription_recognition.py`를 추가해 Gemini Vision으로 약품명, 용량, 복용법, 성분 후보를 구조화합니다.
+- 인식된 약품명은 MySQL 약 제품/성분 캐시와 legacy 제품-성분 테이블로 성분명을 보강합니다.
+- 성분 미확정 항목은 LLM 제품명→성분명 보조 추론과 `needs_confirmation` 상태로 사용자 확인 흐름을 유지합니다.
+- 건강기능식품 라벨 인식은 Gemini 제품명 추출, MFDS DB 매칭, RapidFuzz 재랭킹, 원료 파싱 구조를 유지합니다.
+
+---
+
 ## 디렉터리 구조
 
 ```
@@ -17,7 +28,9 @@ ai/
 │   └── api/v1/
 │       ├── supplement.py           # POST /api/v1/supplement/recognize
 │       └── pill.py                 # POST /api/v1/pill/recognize
-├── pill_recognition/               # 의약품 및 알약 인식 파이프라인
+├── app/services/
+│   └── prescription_recognition.py # 처방전·약봉투·복약 안내문 문서 인식
+├── pill_recognition/               # 과거 낱알 인식 학습·추론 자산
 │   ├── datasets/                   # 로컬 학습·평가 데이터, 내용 Git 제외
 │   ├── training/                   # 학습 설정과 데이터 변환·평가 스크립트
 │   ├── requirements/               # 런타임·학습 의존성
@@ -64,11 +77,11 @@ flowchart LR
     A["이미지 입력"] --> B["입력 검증"]
     B --> C["이미지 전처리"]
     C --> D{"인식 대상"}
-    D -->|"의약품"| E["알약 탐지 및 recognizer 선택"]
+    D -->|"의약품"| E["처방전·약봉투 문서 인식"]
     D -->|"건강기능식품"| F["Gemini Vision 제품명 추출"]
-    E --> G["AIHub/Codeit 제품 데이터 대조"]
+    E --> G["약품명·용량·성분 후보 구조화"]
     F --> G
-    G --> H["후보·성분·함량 구조화"]
+    G --> H["DB/API 후보 보강 및 표준화"]
     H --> I["신뢰도 및 확인 필요 여부 반환"]
 ```
 
@@ -80,6 +93,32 @@ flowchart LR
 ---
 
 ## 의약품 파이프라인
+
+현재 앱에서 사용하는 의약품 인식은 처방전, 약봉투, 복약 안내문처럼 약품명이 텍스트로 적힌 문서를 대상으로 합니다.
+
+### 현재 앱 연동 흐름
+
+```
+이미지 입력
+  ↓
+[FastAPI] app/api/v1/pill.py
+  multipart 이미지를 수신하고 문서 인식 서비스로 전달
+  ↓
+[Gemini Vision] app/services/prescription_recognition.py
+  처방 의약품명, 용량, 복용 정보, 성분 후보를 JSON으로 추출
+  ↓
+[약품/성분 보강]
+  official_drug_products / official_drug_product_ingredients 우선 조회
+  pill_product_ingredients legacy fallback 조회
+  필요 시 LLM 제품명→성분명 보조 추론
+  ↓
+[응답 구조화]
+  medications[], detections[], confidence, needs_confirmation 반환
+```
+
+낱알 이미지에서 모양을 보고 개별 알약을 맞히던 RTMDet 기반 코드는 학습·비교용 자산으로 남아 있지만, 현재 앱의 처방약 인식 요청은 위 문서 인식 경로를 사용합니다.
+
+### 과거 낱알 인식 자산
 
 위치: [`pill_recognition/inference/pill_recognition/`](./pill_recognition/inference/pill_recognition/)
 
