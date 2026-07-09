@@ -2,20 +2,14 @@
 DB 미등재 건강기능식품의 성분을 Gemini에게 식약처 기준으로 추출.
 
 CBNUAI Gateway → GEMINI_API_KEY 순으로 fallback.
+성분명은 한국어(식약처 공전 기준)로 반환 — 번역은 백엔드에서 처리.
 """
 from __future__ import annotations
 
 import os
 import re
-import urllib.error
-import urllib.parse
-import urllib.request
-import json
 
 from openai import OpenAI
-
-_DEEPL_API_URL = "https://api-free.deepl.com/v2/translate"
-_DEEPL_LANG_MAP = {"en": "EN-US", "fr": "FR", "ko": "KO"}
 
 _GATEWAY_BASE_URL = "https://factchat-cloud.mindlogic.ai/v1/gateway"
 _MODEL_PRIMARY = "gemini-3.5-flash"
@@ -48,33 +42,11 @@ def _parse(raw: str) -> list[str]:
     return ingredients
 
 
-def _translate_deepl(texts: list[str], target_lang: str) -> list[str]:
-    """DeepL로 텍스트 리스트 번역. 실패하면 원문 반환."""
-    api_key = os.environ.get("DEEPL_API_KEY", "").strip()
-    if not api_key or target_lang == "ko":
-        return texts
-    lang_code = _DEEPL_LANG_MAP.get(target_lang)
-    if not lang_code:
-        return texts
-    try:
-        params = urllib.parse.urlencode(
-            [("text", t) for t in texts] + [("target_lang", lang_code)],
-        ).encode("utf-8")
-        req = urllib.request.Request(
-            _DEEPL_API_URL,
-            data=params,
-            headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return [t["text"] for t in data.get("translations", [])] or texts
-    except Exception:
-        return texts
+def lookup_ingredients_from_gemini(product_name: str) -> list[str]:
+    """DB 미등재 제품명으로 Gemini에게 식약처 기준 성분 추출 요청.
 
-
-def lookup_ingredients_from_gemini(product_name: str, lang: str = "ko") -> list[str]:
-    """DB 미등재 제품명으로 Gemini에게 식약처 기준 성분 추출 요청."""
+    성분명은 한국어로 반환. 번역은 백엔드에서 처리.
+    """
     prompt = _PROMPT_TEMPLATE.format(product_name=product_name)
     messages = [{"role": "user", "content": prompt}]
 
@@ -87,7 +59,7 @@ def lookup_ingredients_from_gemini(product_name: str, lang: str = "ko") -> list[
             ).choices[0].message.content.strip()
             result = _parse(raw)
             if result:
-                return _translate_deepl(result, lang)
+                return result
         except Exception:
             pass
 
@@ -100,7 +72,7 @@ def lookup_ingredients_from_gemini(product_name: str, lang: str = "ko") -> list[
             ).choices[0].message.content.strip()
             result = _parse(raw)
             if result:
-                return _translate_deepl(result, lang)
+                return result
         except Exception:
             pass
 

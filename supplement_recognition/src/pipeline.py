@@ -33,7 +33,7 @@ def _normalize_manufacturer(name: str | None) -> str:
     return n.lower()
 
 
-def recognize(image_path: Path | str, request_id: str | None = None, lang: str = "ko") -> SupplementRecognitionResult:
+def recognize(image_path: Path | str, request_id: str | None = None) -> SupplementRecognitionResult:
     rid = request_id or f"rec_supplement_{uuid.uuid4().hex[:8]}"
 
     # 1. 이미지 전처리
@@ -81,7 +81,7 @@ def recognize(image_path: Path | str, request_id: str | None = None, lang: str =
 
     # 4. DB 미등재 — Gemini로 식약처 기준 성분 추출 후 반환
     if product.product_code is None:
-        gemini_ingredients = lookup_ingredients_from_gemini(product_name, lang=lang)
+        gemini_ingredients = lookup_ingredients_from_gemini(product_name)
         warnings = [f"'{product_name}' 제품이 식약처 DB에 등록되어 있지 않습니다."]
         if gemini_ingredients:
             warnings.append("성분 정보는 Gemini가 식약처 자료를 기준으로 추출했습니다. 반드시 확인하세요.")
