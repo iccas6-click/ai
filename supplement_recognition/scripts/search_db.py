@@ -30,7 +30,7 @@ def get_conn():
     )
 
 
-def search(conn, keyword: str, limit: int = 15) -> list[dict]:
+def search(conn, keyword: str, limit: int = 100) -> list[dict]:
     cur = conn.cursor(dictionary=True)
     cur.execute(
         "SELECT sttemnt_no, prduct, entrps "

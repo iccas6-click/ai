@@ -32,6 +32,7 @@ class SupplementProduct(BaseModel):
     main_function: Optional[str] = None
     base_standard: Optional[str] = None
     ingredients: list[str] = Field(default_factory=list)  # 파싱된 성분명 리스트
+    ingredients_source: str = "db"  # "db" | "gemini" — 성분 출처
     confidence: float = Field(ge=0.0, le=1.0)
 
 
@@ -39,6 +40,7 @@ class SupplementRecognitionResult(BaseModel):
     request_id: str
     status: RecognitionStatus
     product: Optional[SupplementProduct] = None
+    candidates: list[SupplementProduct] = Field(default_factory=list)  # 동명이제 후보
     needs_confirmation: bool = False
     warnings: list[str] = Field(default_factory=list)
     error_code: Optional[ErrorCode] = None

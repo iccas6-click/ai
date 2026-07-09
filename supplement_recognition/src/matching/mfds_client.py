@@ -7,7 +7,7 @@ from typing import Optional
 
 import mysql.connector
 from mysql.connector import Error as MySQLError
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils as fuzz_utils
 
 from supplement_recognition.src.enrichment.official_image_lookup import (
     lookup_official_product_image,
@@ -175,14 +175,17 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             return None
 
         def _score(candidate_name: str) -> float:
-            # partial_ratio만 쓰면 짧은 쿼리가 긴 제품명 안에 부분 포함될 때 100점을 줘서
-            # 엉뚱한 제품이 매칭되는 문제가 있음.
-            # length_ratio로 길이 차이에 패널티를 주어 보정.
+            # token_set_ratio: 쿼리 토큰이 DB명에 포함되면 높은 점수 (길이 차이 관대)
+            # partial_ratio: 순서 있는 부분 매칭
+            # length_ratio: 너무 짧은 쿼리가 긴 DB명에 걸리는 것 방지
+            token_set = fuzz.token_set_ratio(product_name, candidate_name)
             partial = fuzz.partial_ratio(product_name, candidate_name)
             length_ratio = min(len(product_name), len(candidate_name)) / max(
                 len(product_name), len(candidate_name), 1
             )
-            return partial * (0.5 + 0.5 * length_ratio)
+            # token_set 60% + partial 40%, 단 길이 차이 클수록 소폭 패널티
+            base = token_set * 0.6 + partial * 0.4
+            return base * (0.7 + 0.3 * length_ratio)
 
         best = max(candidates, key=lambda r: _score(r["prduct"]))
         best["_similarity"] = _score(best["prduct"])
@@ -218,3 +221,72 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             cursor.close()
         if conn:
             conn.close()
+
+
+def search_top_products(product_name: str, top_k: int = 5) -> list[MfdsProduct]:
+    """동명이제 감지용 — 유사도 상위 N개 반환 (score 차이 10 이내, 다른 제조사)."""
+    conn = None
+    cursor = None
+    try:
+        conn = _get_conn()
+        cursor = conn.cursor(dictionary=True)
+        include_image_columns = _ensure_image_columns(cursor)
+        if include_image_columns:
+            conn.commit()
+
+        try:
+            candidates = _fetch_fulltext_candidates(cursor, product_name, 50, include_image_columns)
+        except Exception:
+            candidates = []
+        if not candidates:
+            candidates = _fetch_like_candidates(cursor, product_name, 50, include_image_columns)
+        if not candidates:
+            return []
+
+        def _score(name: str) -> float:
+            token_set = fuzz.token_set_ratio(product_name, name)
+            partial = fuzz.partial_ratio(product_name, name)
+            length_ratio = min(len(product_name), len(name)) / max(len(product_name), len(name), 1)
+            base = token_set * 0.6 + partial * 0.4
+            return base * (0.7 + 0.3 * length_ratio)
+
+        scored = [(r, _score(r["prduct"])) for r in candidates]
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        best_score = scored[0][1] if scored else 0
+        results = []
+        seen_names: set[str] = set()
+        for row, score in scored:
+            if score < _SIMILARITY_THRESHOLD:
+                break
+            if score < best_score - 10:
+                break
+            name_key = row["prduct"].strip().lower()
+            if name_key in seen_names:
+                continue
+            seen_names.add(name_key)
+            markers = _fetch_markers(cursor, row["id"]) if "id" in row else []
+            results.append(MfdsProduct(
+                product_code=row["sttemnt_no"],
+                product_name=row["prduct"].strip(),
+                manufacturer=row["entrps"],
+                main_function=row["main_fnctn"],
+                base_standard=row["base_standard"],
+                product_image_url=row.get("product_image_url"),
+                product_image_source_url=row.get("product_image_source_url"),
+                similarity=score,
+                prebuilt_ingredients=markers,
+            ))
+            if len(results) >= top_k:
+                break
+        return results
+    except Exception:
+        return []
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+_SIMILARITY_THRESHOLD = 70

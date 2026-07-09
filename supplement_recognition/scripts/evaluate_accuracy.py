@@ -33,7 +33,7 @@ load_dotenv()
 
 from rapidfuzz import fuzz
 
-from supplement_recognition.src.extraction.llm_extractor import extract_product_name
+from supplement_recognition.src.extraction.llm_extractor import extract_product_candidates
 from supplement_recognition.src.pipeline import recognize
 
 SAMPLES_DIR = Path("supplement_recognition/data/samples")
@@ -62,20 +62,22 @@ def run(images: list[Path]) -> None:
         print(f"[{i:2d}/{total}] {img_path.name}")
         print(f"       정답: {expected}")
 
-        # Gemini 단독 추출
+        # Gemini 단독 추출 (후보 최대 3개)
         try:
-            gemini_name = extract_product_name(img_path)
+            candidates = extract_product_candidates(img_path)
         except Exception as e:
-            gemini_name = ""
+            candidates = []
             print(f"       Gemini 오류: {e}")
 
+        gemini_name = candidates[0] if candidates else ""
         sim = fuzz.partial_ratio(expected, gemini_name)
         similarity_sum += sim
 
         if gemini_name.strip():
             gemini_ok += 1
 
-        print(f"       Gemini: {gemini_name!r}  유사도: {sim:.0f}%")
+        print(f"       Gemini 후보: {candidates}")
+        print(f"       1순위 유사도: {sim:.0f}%")
 
         # 전체 파이프라인
         t0 = time.time()
