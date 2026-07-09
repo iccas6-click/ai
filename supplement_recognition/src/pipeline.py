@@ -23,6 +23,17 @@ load_dotenv()
 _CONFIDENCE_THRESHOLD = 0.7
 
 
+def _extract_brand(candidates: list[str]) -> str | None:
+    """Gemini 후보1(브랜드 포함)과 후보2(브랜드 제외) 차이로 브랜드명 추출."""
+    if len(candidates) < 2:
+        return None
+    words0 = candidates[0].split()
+    words1_set = set(candidates[1].split())
+    brand_words = [w for w in words0 if w not in words1_set]
+    brand = " ".join(brand_words).strip()
+    return brand if len(brand) >= 2 else None
+
+
 def _normalize_manufacturer(name: str | None) -> str:
     """제조사명 정규화 — 공백·괄호·(주)/(유) 표기 차이 제거."""
     if not name:
@@ -67,10 +78,11 @@ def recognize(image_path: Path | str, request_id: str | None = None) -> Suppleme
         )
 
     # 3. 후보 전부 DB 매칭 — confidence 최고 결과 선택
+    brand_hint = _extract_brand(name_candidates)
     best_product = None
     best_name = name_candidates[0]
     for candidate in name_candidates:
-        product = match_and_enrich(candidate)
+        product = match_and_enrich(candidate, brand_hint=brand_hint)
         if product.product_code is not None:
             if best_product is None or product.confidence > best_product.confidence:
                 best_product = product

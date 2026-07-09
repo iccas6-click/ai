@@ -42,6 +42,11 @@ def _get_conn():
     )
 
 
+def _normalize_query(name: str) -> str:
+    """단일 알파벳·숫자가 앞 토큰과 공백으로 분리된 경우 붙임: '메가도스 B' → '메가도스B'."""
+    return re.sub(r"(\w)\s+([A-Za-z0-9])(?=\s|$)", r"\1\2", name)
+
+
 def _like_terms(product_name: str) -> list[str]:
     cleaned = re.sub(r"\s+", " ", product_name).strip()
     terms = [cleaned]
@@ -148,12 +153,16 @@ def _cache_product_image(cursor, product_code: str, image_url: str | None, sourc
         pass
 
 
-def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
+def search_product(product_name: str, top_k: int = 30, brand_hint: str | None = None) -> Optional[MfdsProduct]:
     """
     1단계: FULLTEXT로 제품명 기반 후보 추출
     2단계: FULLTEXT 인덱스가 없거나 후보가 없으면 LIKE 후보 추출
     3단계: RapidFuzz로 후보 중 가장 유사한 제품 선택
+    brand_hint: Gemini가 추출한 브랜드명 — 일치 시 보너스, 불일치 시 패널티 적용
     """
+    # 단일 알파벳/숫자가 앞 토큰과 공백으로 분리된 경우 붙임 ('메가도스 B' → '메가도스B')
+    normalized_name = _normalize_query(product_name)
+
     conn = None
     cursor = None
     try:
@@ -164,28 +173,35 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
             conn.commit()
 
         try:
-            candidates = _fetch_fulltext_candidates(cursor, product_name, top_k, include_image_columns)
+            candidates = _fetch_fulltext_candidates(cursor, normalized_name, top_k, include_image_columns)
         except MySQLError:
             candidates = []
 
         if not candidates:
-            candidates = _fetch_like_candidates(cursor, product_name, top_k, include_image_columns)
+            candidates = _fetch_like_candidates(cursor, normalized_name, top_k, include_image_columns)
 
         if not candidates:
             return None
 
+        # 브랜드 힌트 정규화 (비교 시 공백·대소문자 무시)
+        brand_normalized = brand_hint.replace(" ", "").lower() if brand_hint else None
+
         def _score(candidate_name: str) -> float:
-            # token_set_ratio: 쿼리 토큰이 DB명에 포함되면 높은 점수 (길이 차이 관대)
-            # partial_ratio: 순서 있는 부분 매칭
-            # length_ratio: 너무 짧은 쿼리가 긴 DB명에 걸리는 것 방지
-            token_set = fuzz.token_set_ratio(product_name, candidate_name)
-            partial = fuzz.partial_ratio(product_name, candidate_name)
-            length_ratio = min(len(product_name), len(candidate_name)) / max(
-                len(product_name), len(candidate_name), 1
+            token_set = fuzz.token_set_ratio(normalized_name, candidate_name)
+            partial = fuzz.partial_ratio(normalized_name, candidate_name)
+            length_ratio = min(len(normalized_name), len(candidate_name)) / max(
+                len(normalized_name), len(candidate_name), 1
             )
-            # token_set 60% + partial 40%, 단 길이 차이 클수록 소폭 패널티
             base = token_set * 0.6 + partial * 0.4
-            return base * (0.7 + 0.3 * length_ratio)
+            score = base * (0.7 + 0.3 * length_ratio)
+
+            # 브랜드 보정: 같은 브랜드면 미세 보너스 (DB에 브랜드명 없는 경우 패널티 금지)
+            if brand_normalized and len(brand_normalized) >= 2:
+                cand_normalized = candidate_name.replace(" ", "").lower()
+                if brand_normalized in cand_normalized:
+                    score *= 1.05
+
+            return min(score, 100.0)
 
         best = max(candidates, key=lambda r: _score(r["prduct"]))
         best["_similarity"] = _score(best["prduct"])
@@ -225,6 +241,7 @@ def search_product(product_name: str, top_k: int = 30) -> Optional[MfdsProduct]:
 
 def search_top_products(product_name: str, top_k: int = 5) -> list[MfdsProduct]:
     """동명이제 감지용 — 유사도 상위 N개 반환 (score 차이 10 이내, 다른 제조사)."""
+    normalized_name = _normalize_query(product_name)
     conn = None
     cursor = None
     try:
@@ -235,18 +252,18 @@ def search_top_products(product_name: str, top_k: int = 5) -> list[MfdsProduct]:
             conn.commit()
 
         try:
-            candidates = _fetch_fulltext_candidates(cursor, product_name, 50, include_image_columns)
+            candidates = _fetch_fulltext_candidates(cursor, normalized_name, 50, include_image_columns)
         except Exception:
             candidates = []
         if not candidates:
-            candidates = _fetch_like_candidates(cursor, product_name, 50, include_image_columns)
+            candidates = _fetch_like_candidates(cursor, normalized_name, 50, include_image_columns)
         if not candidates:
             return []
 
         def _score(name: str) -> float:
-            token_set = fuzz.token_set_ratio(product_name, name)
-            partial = fuzz.partial_ratio(product_name, name)
-            length_ratio = min(len(product_name), len(name)) / max(len(product_name), len(name), 1)
+            token_set = fuzz.token_set_ratio(normalized_name, name)
+            partial = fuzz.partial_ratio(normalized_name, name)
+            length_ratio = min(len(normalized_name), len(name)) / max(len(normalized_name), len(name), 1)
             base = token_set * 0.6 + partial * 0.4
             return base * (0.7 + 0.3 * length_ratio)
 
