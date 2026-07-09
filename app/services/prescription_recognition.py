@@ -107,6 +107,10 @@ def _clean_unique(values: list[str | None]) -> list[str]:
     return cleaned
 
 
+def _clean_official_ingredient_name(value: str | None) -> str:
+    return re.sub(r"\[[A-Za-z]\d{3,}\]", "", str(value or "")).strip()
+
+
 def _lookup_mode() -> str:
     return os.environ.get("PRESCRIPTION_DRUG_LOOKUP_MODE", "cache").strip().lower()
 
@@ -340,9 +344,11 @@ def _lookup_official_product_ingredients(cursor, product_name: str) -> tuple[lis
     rows = cursor.fetchall()
     ingredients = _clean_unique(
         [
-            row.get("canonical_name_ko")
-            or row.get("canonical_name_en")
-            or row.get("ingredient_name")
+            _clean_official_ingredient_name(
+                row.get("canonical_name_ko")
+                or row.get("canonical_name_en")
+                or row.get("ingredient_name")
+            )
             for row in rows
         ]
     )
@@ -360,14 +366,13 @@ def _lookup_official_product_ingredients(cursor, product_name: str) -> tuple[lis
     return ingredients, "official_product_catalog" if rows else "not_found", image_url, drug_info
 
 
-def _run_official_product_import(product_name: str) -> bool:
-    """공식 제품 캐시 miss 시 백엔드 importer를 온디멘드로 호출."""
+def _build_official_product_import_command(product_name: str) -> tuple[list[str], Path, dict[str, str]] | None:
     explicit_path = os.environ.get("OFFICIAL_DRUG_IMPORTER_PATH", "").strip()
     importer_path = Path(explicit_path) if explicit_path else (
         Path(__file__).resolve().parents[2].parent / "backend" / "scripts" / "import_official_drug_products.py"
     )
     if not importer_path.exists():
-        return False
+        return None
 
     backend_dir = importer_path.parents[1]
     python_path = backend_dir / ".venv" / "bin" / "python"
@@ -376,18 +381,53 @@ def _run_official_product_import(product_name: str) -> bool:
 
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
+    for source, target in (
+        ("PILL_MYSQL_HOST", "MYSQL_HOST"),
+        ("PILL_MYSQL_PORT", "MYSQL_PORT"),
+        ("PILL_MYSQL_DATABASE", "MYSQL_DATABASE"),
+        ("PILL_MYSQL_USER", "MYSQL_USER"),
+        ("PILL_MYSQL_PASSWORD", "MYSQL_PASSWORD"),
+    ):
+        if env.get(source):
+            env[target] = env[source]
+
+    command = [
+        str(python_path),
+        str(importer_path),
+        "--query",
+        product_name,
+        "--timeout",
+        os.environ.get("OFFICIAL_DRUG_IMPORT_TIMEOUT", "3"),
+        "--sleep",
+        "0",
+    ]
+    return command, backend_dir, env
+
+
+def _run_official_product_import(product_name: str, *, wait: bool) -> bool:
+    """공식 제품 캐시 miss 시 importer를 호출한다. 기본은 응답 지연을 피하기 위해 백그라운드 실행."""
+    command_config = _build_official_product_import_command(product_name)
+    if command_config is None:
+        return False
+    command, backend_dir, env = command_config
+
+    if not wait:
+        try:
+            subprocess.Popen(
+                command,
+                cwd=str(backend_dir),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception:
+            return False
+        return False
+
     try:
         result = subprocess.run(
-            [
-                str(python_path),
-                str(importer_path),
-                "--query",
-                product_name,
-                "--timeout",
-                os.environ.get("OFFICIAL_DRUG_IMPORT_TIMEOUT", "3"),
-                "--sleep",
-                "0",
-            ],
+            command,
             cwd=str(backend_dir),
             env=env,
             capture_output=True,
@@ -398,6 +438,10 @@ def _run_official_product_import(product_name: str) -> bool:
     except Exception:
         return False
     return result.returncode == 0
+
+
+def _official_import_blocking_enabled() -> bool:
+    return os.environ.get("OFFICIAL_DRUG_IMPORT_BLOCKING", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _official_import_on_demand_enabled() -> bool:
@@ -444,7 +488,11 @@ def _lookup_product_ingredients(cursor, product_name: str) -> tuple[list[str], s
         cursor,
         product_name,
     )
-    if not official_ingredients and _official_import_on_demand_enabled() and _run_official_product_import(product_name):
+    if (
+        not official_ingredients
+        and _official_import_on_demand_enabled()
+        and _run_official_product_import(product_name, wait=_official_import_blocking_enabled())
+    ):
         try:
             cursor.execute("COMMIT")
         except Exception:
