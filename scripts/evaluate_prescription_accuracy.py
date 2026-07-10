@@ -47,13 +47,15 @@ def run():
     total_images = len(images)
     extraction_success = 0   # 경구 의약품 1개 이상 추출된 이미지
     total_drugs = 0          # 추출된 경구 약품명 수
-    db_matched = 0           # DB 매칭 성공 (not_found / llm_only / external_use 아닌 것)
+    product_db_matched = 0   # 제품명이 pill_products에 실제 존재 (legacy_product_table / official_product_catalog)
+    ingredient_matched = 0   # 제품명 DB 없음, Gemini 성분명 → canonical_drug_entities 매핑 (ingredient_text)
+    llm_candidate = 0        # Gemini 2차 추출 → canonical (llm_product_ingredient_candidate)
+    not_matched = 0          # 완전 미매칭 (not_found / llm_only)
     external_use_images = 0  # 외용제(안약 등) 이미지 수
     doc_types: dict[str, int] = {}
     failures: list[str] = []
 
-    # external_use match_type은 경구 약 DB 매칭 대상이 아님
-    _NON_MATCH_TYPES = {"not_found", "llm_only", "external_use"}
+    _PRODUCT_DB_TYPES = {"legacy_product_table", "official_product_catalog"}
 
     print(f"\n총 {total_images}개 이미지")
     print("=" * 70)
@@ -92,11 +94,19 @@ def run():
         for med in medications:
             total_drugs += 1
             match_type = med.get("match_type", "not_found")
-            matched = match_type not in _NON_MATCH_TYPES
-            if matched:
-                db_matched += 1
+            if match_type in _PRODUCT_DB_TYPES:
+                product_db_matched += 1
+                marker = "DB"
+            elif match_type == "ingredient_text":
+                ingredient_matched += 1
+                marker = "성분"
+            elif match_type == "llm_product_ingredient_candidate":
+                llm_candidate += 1
+                marker = "LLM"
+            else:
+                not_matched += 1
+                marker = "X"
             ingredients = med.get("ingredients") or []
-            marker = "O" if matched else "X"
             print(f"       [{marker}] {med['product_name']}")
             print(f"         match={match_type}  성분={', '.join(ingredients) if ingredients else '없음'}")
 
@@ -112,8 +122,12 @@ def run():
     print(f"약품명 추출 성공          : {extraction_success}/{oral_images} = {extraction_success/oral_images*100:.1f}%" if oral_images else "약품명 추출 성공: N/A")
     print(f"추출된 경구 약품명 총 수  : {total_drugs}건")
     if total_drugs:
-        print(f"DB 매칭 성공              : {db_matched}/{total_drugs} = {db_matched/total_drugs*100:.1f}%")
-        print(f"DB 미매칭 (not_found 등)  : {total_drugs - db_matched}/{total_drugs} = {(total_drugs-db_matched)/total_drugs*100:.1f}%")
+        print()
+        print(f"[매칭 유형별 분류]")
+        print(f"  제품명 DB 직접 매칭     : {product_db_matched}/{total_drugs} = {product_db_matched/total_drugs*100:.1f}%  (pill_products 실제 등재)")
+        print(f"  성분명 canonical 매칭   : {ingredient_matched}/{total_drugs} = {ingredient_matched/total_drugs*100:.1f}%  (Gemini 성분 → canonical_drug_entities)")
+        print(f"  LLM 2차 추출 매칭       : {llm_candidate}/{total_drugs} = {llm_candidate/total_drugs*100:.1f}%  (Gemini 2차 성분 → canonical)")
+        print(f"  완전 미매칭             : {not_matched}/{total_drugs} = {not_matched/total_drugs*100:.1f}%")
     print(f"\n문서 유형 분포:")
     for dtype, count in sorted(doc_types.items(), key=lambda x: -x[1]):
         print(f"  {dtype}: {count}건")
