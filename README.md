@@ -179,13 +179,25 @@ SupplementRecognitionResult 반환
   { status, product: { product_name, ingredients: [...], confidence }, needs_confirmation }
 ```
 
-### 현재 정확도 (테스트 이미지 20장 기준)
+### 현재 정확도 (테스트 이미지 30장 기준)
 
 | 지표 | 결과 |
 |---|---|
-| Gemini 추출 성공률 | 20/20 = 100% |
-| Gemini 제품명 유사도 | 95.2% |
-| DB 정확 매칭률 | 14/20 = 70% |
+| Gemini 제품명 추출 성공률 | 30/30 = **100%** |
+| Gemini 추출명 vs 정답 유사도 | **89.5%** |
+| DB Top-1 정확 매칭률 | 24/30 = **80.0%** |
+
+### 실패 케이스 분류 (6건)
+
+| 원인 | 건수 | 케이스 |
+|---|---|---|
+| Gemini 인식 성공 + DB 오매칭 | **4건** | 고려은단 식물성 오메가3, 락토핏 골드, 레모나산, 칼슘앤마그네슘비타민D아연 |
+| Gemini 인식 성공 + DB 미등재 | **1건** | 세노비스 칼슘+비타민D |
+| Gemini 인식 실패 → DB 매칭 실패 | **1건** | 비타민 활기력샷 ("활기력" → "활력"으로 오인식) |
+
+- **DB 오매칭**: Gemini가 올바른 제품명을 추출했으나 토큰이 겹치는 유사 제품이 먼저 매칭됨
+- **DB 미등재**: Gemini 추출은 정확하나 해당 브랜드 제품 자체가 DB에 없음 (코드로 해결 불가)
+- **Gemini 오인식**: Gemini가 제품명 일부를 잘못 읽어 DB 매칭도 실패
 
 ### API
 
@@ -265,4 +277,3 @@ uvicorn app.main:app --reload --port 8002
 - [x] 제품 공식 이미지 URL 응답
 - [x] 알약 인식 엔진 요청별 선택
 - [ ] 실제 이미지 정확도 테스트 확대
-- [ ] `supplement_recognition/src/ocr/reader.py` 제거 (EasyOCR 잔재, 미사용)
