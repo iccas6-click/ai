@@ -45,11 +45,15 @@ def run():
         return
 
     total_images = len(images)
-    extraction_success = 0   # 약품명 1개 이상 추출된 이미지
-    total_drugs = 0          # 추출된 약품명 총 수
-    db_matched = 0           # DB 매칭 성공 (not_found 아닌 것)
+    extraction_success = 0   # 경구 의약품 1개 이상 추출된 이미지
+    total_drugs = 0          # 추출된 경구 약품명 수
+    db_matched = 0           # DB 매칭 성공 (not_found / llm_only / external_use 아닌 것)
+    external_use_images = 0  # 외용제(안약 등) 이미지 수
     doc_types: dict[str, int] = {}
     failures: list[str] = []
+
+    # external_use match_type은 경구 약 DB 매칭 대상이 아님
+    _NON_MATCH_TYPES = {"not_found", "llm_only", "external_use"}
 
     print(f"\n총 {total_images}개 이미지")
     print("=" * 70)
@@ -72,6 +76,13 @@ def run():
 
         print(f"       문서 유형: {doc_type}  |  처리 시간: {elapsed:.1f}초")
 
+        # 외용제 이미지: 약품명 추출은 됐지만 DB 매칭 대상 아님
+        if doc_type == "eye_drop":
+            external_use_images += 1
+            for med in medications:
+                print(f"       [외용제] {med.get('product_name', '')}  (DB 매칭 제외)")
+            continue
+
         if not medications:
             print("       약품명 추출: 없음")
             failures.append(img_path.name)
@@ -81,21 +92,25 @@ def run():
         for med in medications:
             total_drugs += 1
             match_type = med.get("match_type", "not_found")
-            matched = match_type not in ("not_found", "llm_only")
+            matched = match_type not in _NON_MATCH_TYPES
             if matched:
                 db_matched += 1
             ingredients = med.get("ingredients") or []
-            marker = "✓" if matched else "✗"
-            print(f"       {marker} {med['product_name']}")
+            marker = "O" if matched else "X"
+            print(f"       [{marker}] {med['product_name']}")
             print(f"         match={match_type}  성분={', '.join(ingredients) if ingredients else '없음'}")
+
+    oral_images = total_images - external_use_images
 
     # --- 요약 ---
     print("\n" + "=" * 70)
     print("결과 요약")
     print("=" * 70)
     print(f"테스트 이미지 수          : {total_images}장")
-    print(f"약품명 추출 성공          : {extraction_success}/{total_images} = {extraction_success/total_images*100:.1f}%")
-    print(f"추출된 약품명 총 수       : {total_drugs}건")
+    print(f"  경구 의약품 이미지       : {oral_images}장")
+    print(f"  외용제(안약 등) 이미지   : {external_use_images}장 (DB 매칭 제외)")
+    print(f"약품명 추출 성공          : {extraction_success}/{oral_images} = {extraction_success/oral_images*100:.1f}%" if oral_images else "약품명 추출 성공: N/A")
+    print(f"추출된 경구 약품명 총 수  : {total_drugs}건")
     if total_drugs:
         print(f"DB 매칭 성공              : {db_matched}/{total_drugs} = {db_matched/total_drugs*100:.1f}%")
         print(f"DB 미매칭 (not_found 등)  : {total_drugs - db_matched}/{total_drugs} = {(total_drugs-db_matched)/total_drugs*100:.1f}%")
