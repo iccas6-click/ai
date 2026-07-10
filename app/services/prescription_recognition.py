@@ -24,17 +24,17 @@ _RETRY_DELAY = 1.0
 _CONFIDENCE_THRESHOLD = 0.72
 
 _PROMPT = """\
-이 이미지는 처방전, 조제약 봉투, 복약 안내문, 약국 영수증 중 하나일 수 있습니다.
-이미지에 적힌 복용 의약품 정보를 읽어서 약품명을 구조화해 주세요.
+이 이미지는 처방전, 조제약 봉투, 복약 안내문, 약국 영수증, 안약(점안액) 등일 수 있습니다.
+이미지에 적힌 의약품 정보를 읽어서 약품명을 구조화해 주세요.
 
 반드시 아래 JSON 형식만 반환하세요. 설명, 마크다운, 코드블록은 금지합니다.
 {
-  "document_type": "prescription|medicine_bag|medication_guide|receipt|unknown",
+  "document_type": "prescription|medicine_bag|medication_guide|receipt|eye_drop|unknown",
   "medications": [
     {
       "product_name": "이미지에 적힌 약품명",
       "dosage": "제품 자체의 함량/규격만. 예: 50mg, 250밀리그램, 10mg. 없으면 빈 문자열",
-      "administration": "복용법만. 예: 1일 3회 식후 30분. 없으면 빈 문자열",
+      "administration": "사용법만. 예: 1일 3회 식후 30분. 없으면 빈 문자열",
       "ingredient_names": ["확실한 주성분명 후보. 제품명을 그대로 반복하지 마세요"],
       "confidence": 0.0
     }
@@ -43,9 +43,10 @@ _PROMPT = """\
 }
 
 규칙:
+- 안약(점안액), 점이액, 외용제, 흡입제 등 경구 복용이 아닌 의약품이면 document_type을 "eye_drop"으로 설정합니다.
 - 약품명은 처방/조제된 의약품만 포함합니다.
 - 병원명, 약국명, 환자명, 의사명, 날짜, 금액, 보험/청구 문구는 제외합니다.
-- "1일 3회", "7일분"처럼 복용법만 있고 약 이름이 아닌 줄은 약품명에서 제외합니다.
+- "1일 3회", "7일분"처럼 사용법만 있고 약 이름이 아닌 줄은 약품명에서 제외합니다.
 - dosage에는 "1일", "하루", "식전", "식후", "아침", "점심", "저녁", "취침", "복용" 같은 복용법 표현을 절대 넣지 않습니다.
 - 복용법 표현은 administration에만 넣습니다.
 - 같은 약이 중복으로 보이면 하나로 합칩니다.
@@ -54,6 +55,8 @@ _PROMPT = """\
 - 주성분이 확실하지 않으면 ingredient_names는 빈 배열로 둡니다.
 - 한글 텍스트를 우선 사용합니다.
 """
+
+_EXTERNAL_USE_DOC_TYPES = frozenset({"eye_drop"})
 
 _INGREDIENT_PROMPT = """\
 다음은 한국 처방전/약봉투 OCR에서 추출된 의약품 제품명입니다.
@@ -457,26 +460,29 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
     while len(like_params) < 4:
         like_params.append("__NO_MATCH__")
 
-    cursor.execute(
-        """
-        SELECT cde.canonical_name_ko, cde.canonical_name_en, ppi.ingredient_name
-        FROM pill_product_ingredients ppi
-        JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
-        WHERE ppi.product_name = %s
-           OR ppi.normalized_product_name = %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-           OR ppi.normalized_product_name LIKE %s
-        ORDER BY ppi.id
-        LIMIT 12
-        """,
-        (product_name, keys[0], *like_params),
-    )
+    try:
+        cursor.execute(
+            """
+            SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en, ppi.ingredient_name
+            FROM pill_products pp
+            JOIN pill_product_ingredients ppi ON ppi.pill_product_id = pp.pill_product_id
+            JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
+            WHERE pp.product_name = %s
+               OR pp.product_name_normalized = %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+               OR pp.product_name_normalized LIKE %s
+            LIMIT 12
+            """,
+            (product_name, keys[0], *like_params),
+        )
+    except Exception:
+        return [], "not_found", None, {}
     rows = cursor.fetchall()
     ingredients = _clean_unique(
         [
-            row.get("canonical_name_ko") or row.get("canonical_name_en") or row.get("ingredient_name")
+            row.get("canonical_drug_name_ko") or row.get("canonical_drug_name_en") or row.get("ingredient_name")
             for row in rows
         ]
     )
@@ -514,22 +520,27 @@ def _lookup_canonical_ingredients(cursor, names: list[str]) -> list[str]:
     resolved: list[str] = []
     for name in _clean_unique(names):
         normalized = _normalize_match_key(name)
-        cursor.execute(
-            """
-            SELECT canonical_name_ko, canonical_name_en
-            FROM canonical_drug_entities
-            WHERE canonical_name_ko = %s
-               OR LOWER(canonical_name_en) = LOWER(%s)
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(canonical_name_ko), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') = %s
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(canonical_name_en), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') = %s
-               OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(LOWER(raw_aliases), ' ', ''), '-', ''), '_', ''), '/', ''), '(', ''), ')', ''), '.', '') LIKE %s
-            LIMIT 4
-            """,
-            (name, name, normalized, normalized, f"%{normalized}%"),
-        )
+        try:
+            cursor.execute(
+                """
+                SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en
+                FROM canonical_drug_entities cde
+                LEFT JOIN drug_aliases da ON da.canonical_drug_id = cde.canonical_drug_id
+                WHERE cde.canonical_drug_name_ko = %s
+                   OR LOWER(cde.canonical_drug_name_en) = LOWER(%s)
+                   OR REPLACE(REPLACE(REPLACE(LOWER(cde.canonical_drug_name_ko), ' ', ''), '-', ''), '.', '') = %s
+                   OR REPLACE(REPLACE(REPLACE(LOWER(cde.canonical_drug_name_en), ' ', ''), '-', ''), '.', '') = %s
+                   OR da.alias_name_normalized LIKE %s
+                LIMIT 4
+                """,
+                (name, name, normalized, normalized, f"%{normalized}%"),
+            )
+        except Exception:
+            resolved.append(name)
+            continue
         rows = cursor.fetchall()
         if rows:
-            resolved.extend(row.get("canonical_name_ko") or row.get("canonical_name_en") for row in rows)
+            resolved.extend(row.get("canonical_drug_name_ko") or row.get("canonical_drug_name_en") for row in rows)
         else:
             resolved.append(name)
     return _clean_unique(resolved)
@@ -676,7 +687,29 @@ def recognize_prescription_document(image_path: Path | str, request_id: str | No
     if not isinstance(raw_medications, list):
         raw_medications = []
 
-    medications = _enrich_medications([item for item in raw_medications if isinstance(item, dict)])
+    doc_type = parsed.get("document_type") or "unknown"
+    if doc_type in _EXTERNAL_USE_DOC_TYPES:
+        medications = [
+            {
+                "id": f"rx-{i}",
+                "product_name": str(item.get("product_name") or "").strip(),
+                "name": str(item.get("product_name") or "").strip(),
+                "dosage": "",
+                "administration": str(item.get("administration") or "").strip(),
+                "ingredients": [],
+                "analysis_names": [],
+                "image_url": None,
+                "product_image_url": None,
+                "drug_info": {},
+                "confidence": float(item.get("confidence") or 0.5),
+                "match_type": "external_use",
+                "needs_confirmation": True,
+            }
+            for i, item in enumerate(raw_medications)
+            if isinstance(item, dict) and str(item.get("product_name") or "").strip()
+        ]
+    else:
+        medications = _enrich_medications([item for item in raw_medications if isinstance(item, dict)])
     status = "completed" if medications and not any(item["needs_confirmation"] for item in medications) else "needs_confirmation"
     if not medications:
         status = "failed"
