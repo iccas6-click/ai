@@ -118,6 +118,18 @@ flowchart LR
 
 낱알 이미지에서 모양을 보고 개별 알약을 맞히던 RTMDet 기반 코드는 학습·비교용 자산으로 남아 있지만, 현재 앱의 처방약 인식 요청은 위 문서 인식 경로를 사용합니다.
 
+### 현재 정확도 (테스트 이미지 20장 기준)
+
+| 지표 | 결과 |
+|---|---|
+| Gemini 약품명 인식 F1 | **95.7%** (Precision 93.7%, Recall 97.8%) |
+| pill_products 제품명 매칭률 | **94.7%** (89/94건, LEFT JOIN LIKE 기준) |
+| 상호작용 DB 역조회 정확도 | **100%** (475/475건, 옵션2) |
+| 처방약×건기식 상호작용 감지율 | **8.7%** (40/462 조합, 처방전 14종 × 건기식 33종, 옵션3) |
+| 상호작용 있는 처방약 비율 | **100%** (14/14종 — 처방전 약물 전부 최소 1개 건기식과 상호작용) |
+
+> 상세 측정 결과 → [`docs/accuracy-report.md`](./docs/accuracy-report.md)
+
 ### 과거 낱알 인식 자산
 
 위치: [`pill_recognition/inference/pill_recognition/`](./pill_recognition/inference/pill_recognition/)
@@ -186,6 +198,7 @@ SupplementRecognitionResult 반환
 | Gemini 제품명 추출 성공률 | 50/50 = **100%** |
 | Gemini 추출명 vs 정답 유사도 | **93.4%** |
 | DB Top-1 정확 매칭률 | 42/50 = **84.0%** |
+| 성분 해석율 F1 | **79.6%** (Precision 100%, Recall 66.1%) |
 
 ### 실패 케이스 분류 (8건)
 
