@@ -157,6 +157,61 @@ python -m pill_recognition.api --host 0.0.0.0 --port 8001
 
 ---
 
+## DB 세팅
+
+자세한 설명은 [`docs/db-setup.md`](./docs/db-setup.md)를 참고하세요.
+
+### Docker DB 실행
+
+```powershell
+docker compose up -d db
+```
+
+### 데이터 적재
+
+```powershell
+# 1단계: supplement_info (44,885행) — supplement_product_markers FK 참조하므로 먼저
+python -c "
+import csv, os, mysql.connector
+from dotenv import load_dotenv
+from pathlib import Path
+
+load_dotenv('.env')
+conn = mysql.connector.connect(
+    host=os.environ.get('MYSQL_HOST', '127.0.0.1'),
+    port=int(os.environ.get('MYSQL_PORT', 3306)),
+    user=os.environ['MYSQL_USER'],
+    password=os.environ['MYSQL_PASSWORD'],
+    database=os.environ['MYSQL_DATABASE'],
+)
+cursor = conn.cursor()
+csv_path = Path(r'C:\경로\drug-supplement schema v3\supplement_info.csv')
+with open(csv_path, encoding='utf-8-sig') as f:
+    rows = list(csv.DictReader(f))
+sql = '''INSERT INTO supplement_info
+    (sttemnt_no, prduct, entrps, regist_dt, distb_pd, sungsang,
+     srv_use, prsrv_pd, intake_hint1, main_fnctn, base_standard)
+    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    ON DUPLICATE KEY UPDATE prduct=VALUES(prduct), entrps=VALUES(entrps)'''
+data = [(r.get('sttemnt_no',''), r.get('prduct',''), r.get('entrps',''),
+         r.get('regist_dt',''), r.get('distb_pd',''), r.get('sungsang',''),
+         r.get('srv_use',''), r.get('prsrv_pd',''), r.get('intake_hint1',''),
+         r.get('main_fnctn',''), r.get('base_standard','')) for r in rows]
+for i in range(0, len(data), 2000):
+    cursor.executemany(sql, data[i:i+2000])
+conn.commit()
+print(f'supplement_info {len(data)}행 적재 완료')
+cursor.close(); conn.close()
+"
+
+# 2단계: pill_products / pill_product_ingredients / supplement_product_markers
+python scripts/import_v3_pill_data.py --csv-dir "C:\경로\drug-supplement schema v3"
+```
+
+> `C:\경로`를 `drug-supplement schema v3/` 폴더의 실제 경로로 바꿔서 실행하세요.
+
+---
+
 ## 건강기능식품 파이프라인
 
 자세한 내용 → [`supplement_recognition/PIPELINE.md`](./supplement_recognition/PIPELINE.md)
