@@ -78,6 +78,10 @@ _SOURCE_COLUMN_MAP = {
 
 
 def import_supplement_product_markers(cursor, rows: list[dict]) -> int:
+    # supplement_info에 실제 존재하는 id 집합 조회
+    cursor.execute("SELECT id FROM supplement_info")
+    valid_ids = {row[0] for row in cursor.fetchall()}
+
     cursor.execute("DELETE FROM supplement_product_markers")
 
     sql = """
@@ -86,18 +90,25 @@ def import_supplement_product_markers(cursor, rows: list[dict]) -> int:
              marker_source_column, marker_type, supplement_id, mapping_status)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
     """
-    data = [
-        (
-            int(r["supplement_info_id"]),
+    data = []
+    skipped = 0
+    for r in rows:
+        sid = int(r["supplement_info_id"])
+        if sid not in valid_ids:
+            skipped += 1
+            continue
+        data.append((
+            sid,
             r["marker_text"],
             r["marker_text_normalized"],
             _SOURCE_COLUMN_MAP.get(r.get("marker_source_column", ""), r.get("marker_source_column", "")),
             r.get("marker_type", ""),
             r["supplement_id"],
             r.get("mapping_status", "confirmed"),
-        )
-        for r in rows
-    ]
+        ))
+
+    if skipped:
+        print(f"  supplement_info에 없는 id {skipped}행 건너뜀")
 
     batch = 5000
     for i in range(0, len(data), batch):
