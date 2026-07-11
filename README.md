@@ -122,9 +122,8 @@ flowchart LR
 
 | 지표 | 결과 |
 |---|---|
-| Gemini 약품명 인식 F1 | **91.1%** (Precision 89.7%, Recall 92.6%) |
+| Gemini 약품명 인식 F1 | **95.7%** (Precision 93.7%, Recall 97.8%) |
 | pill_products 제품명 매칭률 | **94.7%** (89/94건, LEFT JOIN LIKE 기준) |
-| canonical_drug_id 확보율 | **28.6%** (26/91건, pill_product_ingredients 기준) |
 | 상호작용 커버리지 | **3.2%** (32/1,000 조합, 처방전 20장 × 건기식 50장) |
 
 > 상세 측정 결과 → [`docs/accuracy-report.md`](./docs/accuracy-report.md)
@@ -197,7 +196,6 @@ SupplementRecognitionResult 반환
 | Gemini 제품명 추출 성공률 | 50/50 = **100%** |
 | Gemini 추출명 vs 정답 유사도 | **93.4%** |
 | DB Top-1 정확 매칭률 | 42/50 = **84.0%** |
-| 건기식 DB 매칭 정확도 | 16/50 = **32.0%** (supplement_info → supplement_entities) |
 | 성분 해석율 F1 | **79.6%** (Precision 100%, Recall 66.1%) |
 
 ### 실패 케이스 분류 (8건)
