@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS supplement_product_markers (
 
 CREATE TABLE IF NOT EXISTS pill_products (
     pill_product_id       VARCHAR(64)  NOT NULL PRIMARY KEY,
-    product_name          VARCHAR(255) NOT NULL,
-    product_name_normalized VARCHAR(255) NOT NULL,
+    product_name          VARCHAR(500) NOT NULL,
+    product_name_normalized VARCHAR(500) NOT NULL,
     UNIQUE KEY uq_product_name_normalized (product_name_normalized),
     KEY idx_product_name (product_name)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
