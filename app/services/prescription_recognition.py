@@ -161,13 +161,24 @@ def _split_dosage_and_administration(product_name: str, raw_dosage: Any, raw_adm
     return dosage.strip(), administration.strip()
 
 
-def _connect_db():
-    # PILL_MYSQL_* 우선, 없으면 MYSQL_* fallback
-    # 기본 포트는 백엔드 DB(3307) — pill_products/canonical_drug_entities가 여기에 있음
+def _connect_ai_db():
+    # AI DB (click_db, 3306) — pill_products, pill_product_ingredients
+    return mysql.connector.connect(
+        host=os.environ.get("MYSQL_HOST", "localhost"),
+        port=int(os.environ.get("MYSQL_PORT", "3306")),
+        database=os.environ.get("MYSQL_DATABASE", "click_db"),
+        user=os.environ.get("MYSQL_USER", "click_user"),
+        password=os.environ.get("MYSQL_PASSWORD", ""),
+    )
+
+
+def _connect_backend_db():
+    # Backend DB (click_backend_db, 3307) — canonical_drug_entities, drug_aliases
+    # PILL_MYSQL_* 우선, 없으면 MYSQL_* fallback (포트만 3307로 덮어씀)
     return mysql.connector.connect(
         host=os.environ.get("PILL_MYSQL_HOST", os.environ.get("MYSQL_HOST", "localhost")),
-        port=int(os.environ.get("PILL_MYSQL_PORT", os.environ.get("MYSQL_PORT", "3307"))),
-        database=os.environ.get("PILL_MYSQL_DATABASE", os.environ.get("MYSQL_DATABASE", "click_backend_db")),
+        port=int(os.environ.get("PILL_MYSQL_PORT", "3307")),
+        database=os.environ.get("PILL_MYSQL_DATABASE", "click_backend_db"),
         user=os.environ.get("PILL_MYSQL_USER", os.environ.get("MYSQL_USER", "click_user")),
         password=os.environ.get("PILL_MYSQL_PASSWORD", os.environ.get("MYSQL_PASSWORD", "")),
     )
@@ -465,12 +476,13 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
 
     try:
         # 제품명 LIKE로 모든 variant(용량 다른 동일 제품 포함) 조회 후 성분 수 기준 정렬
+        # LEFT JOIN: 성분 데이터가 없어도 제품명 일치하면 매칭
         cursor.execute(
             """
             SELECT pp.pill_product_id,
                    COUNT(ppi.canonical_drug_id) AS ingredient_count
             FROM pill_products pp
-            JOIN pill_product_ingredients ppi ON ppi.pill_product_id = pp.pill_product_id
+            LEFT JOIN pill_product_ingredients ppi ON ppi.pill_product_id = pp.pill_product_id
             WHERE pp.product_name = %s
                OR pp.product_name_normalized = %s
                OR pp.product_name_normalized LIKE %s
@@ -495,9 +507,8 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
     try:
         cursor.execute(
             """
-            SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en, ppi.ingredient_name
+            SELECT ppi.ingredient_name, ppi.canonical_drug_id
             FROM pill_product_ingredients ppi
-            JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
             WHERE ppi.pill_product_id = %s
             """,
             (best_product_id,),
@@ -507,12 +518,10 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
 
     rows = cursor.fetchall()
     ingredients = _clean_unique(
-        [
-            row.get("canonical_drug_name_ko") or row.get("canonical_drug_name_en") or row.get("ingredient_name")
-            for row in rows
-        ]
+        [row.get("ingredient_name") or row.get("canonical_drug_id") for row in rows]
     )
-    return ingredients, "legacy_product_table" if ingredients else "not_found", None, {}
+    # 제품명이 매칭됐으면 성분 데이터 유무와 무관하게 legacy_product_table
+    return ingredients, "legacy_product_table", None, {}
 
 
 def _lookup_product_ingredients(cursor, product_name: str) -> tuple[list[str], str, str | None, dict[str, str]]:
@@ -578,9 +587,16 @@ def _enrich_medications(raw_medications: list[dict[str, Any]]) -> list[dict[str,
     started_at = time.perf_counter()
     conn = None
     cursor = None
+    be_conn = None
+    be_cursor = None
     try:
-        conn = _connect_db()
+        conn = _connect_ai_db()
         cursor = conn.cursor(dictionary=True)
+        try:
+            be_conn = _connect_backend_db()
+            be_cursor = be_conn.cursor(dictionary=True)
+        except Exception:
+            be_cursor = None
         enriched: list[dict[str, Any]] = []
         unresolved_for_llm: list[dict[str, Any]] = []
         for index, raw in enumerate(raw_medications):
@@ -591,7 +607,7 @@ def _enrich_medications(raw_medications: list[dict[str, Any]]) -> list[dict[str,
 
             llm_ingredients = _clean_unique([str(value) for value in raw.get("ingredient_names") or []])
             db_ingredients, match_type, image_url, drug_info = _lookup_product_ingredients(cursor, product_name)
-            ingredients = db_ingredients or _lookup_canonical_ingredients(cursor, llm_ingredients)
+            ingredients = db_ingredients or _lookup_canonical_ingredients(be_cursor or cursor, llm_ingredients)
             dosage, administration = _split_dosage_and_administration(
                 product_name,
                 raw.get("dosage"),
@@ -640,7 +656,7 @@ def _enrich_medications(raw_medications: list[dict[str, Any]]) -> list[dict[str,
                 inferred_ingredients = inferred.get(_normalize_match_key(item["product_name"]), [])
                 if not inferred_ingredients:
                     continue
-                ingredients = _lookup_canonical_ingredients(cursor, inferred_ingredients)
+                ingredients = _lookup_canonical_ingredients(be_cursor or cursor, inferred_ingredients)
                 item["ingredients"] = ingredients
                 item["analysis_names"] = ingredients or inferred_ingredients
                 item["match_type"] = "llm_product_ingredient_candidate"
@@ -680,6 +696,10 @@ def _enrich_medications(raw_medications: list[dict[str, Any]]) -> list[dict[str,
             if str(raw.get("product_name") or raw.get("name") or "").strip()
         ]
     finally:
+        if be_cursor:
+            be_cursor.close()
+        if be_conn:
+            be_conn.close()
         if cursor:
             cursor.close()
         if conn:
