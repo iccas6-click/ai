@@ -162,10 +162,12 @@ def _split_dosage_and_administration(product_name: str, raw_dosage: Any, raw_adm
 
 
 def _connect_db():
+    # PILL_MYSQL_* 우선, 없으면 MYSQL_* fallback
+    # 기본 포트는 백엔드 DB(3307) — pill_products/canonical_drug_entities가 여기에 있음
     return mysql.connector.connect(
         host=os.environ.get("PILL_MYSQL_HOST", os.environ.get("MYSQL_HOST", "localhost")),
-        port=int(os.environ.get("PILL_MYSQL_PORT", os.environ.get("MYSQL_PORT", "3306"))),
-        database=os.environ.get("PILL_MYSQL_DATABASE", os.environ.get("MYSQL_DATABASE", "click_db")),
+        port=int(os.environ.get("PILL_MYSQL_PORT", os.environ.get("MYSQL_PORT", "3307"))),
+        database=os.environ.get("PILL_MYSQL_DATABASE", os.environ.get("MYSQL_DATABASE", "click_backend_db")),
         user=os.environ.get("PILL_MYSQL_USER", os.environ.get("MYSQL_USER", "click_user")),
         password=os.environ.get("PILL_MYSQL_PASSWORD", os.environ.get("MYSQL_PASSWORD", "")),
     )
@@ -452,6 +454,7 @@ def _official_import_on_demand_enabled() -> bool:
 
 
 def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[str], str, str | None, dict[str, str]]:
+    """pill_products에서 용량 무관 LIKE 조회 후 성분 개수가 가장 많은 variant 선택."""
     keys = _product_lookup_keys(product_name)
     if not keys:
         return [], "not_found", None, {}
@@ -461,24 +464,47 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
         like_params.append("__NO_MATCH__")
 
     try:
+        # 제품명 LIKE로 모든 variant(용량 다른 동일 제품 포함) 조회 후 성분 수 기준 정렬
         cursor.execute(
             """
-            SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en, ppi.ingredient_name
+            SELECT pp.pill_product_id,
+                   COUNT(ppi.canonical_drug_id) AS ingredient_count
             FROM pill_products pp
             JOIN pill_product_ingredients ppi ON ppi.pill_product_id = pp.pill_product_id
-            JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
             WHERE pp.product_name = %s
                OR pp.product_name_normalized = %s
                OR pp.product_name_normalized LIKE %s
                OR pp.product_name_normalized LIKE %s
                OR pp.product_name_normalized LIKE %s
                OR pp.product_name_normalized LIKE %s
-            LIMIT 12
+            GROUP BY pp.pill_product_id
+            ORDER BY ingredient_count DESC
+            LIMIT 20
             """,
             (product_name, keys[0], *like_params),
         )
     except Exception:
         return [], "not_found", None, {}
+
+    product_rows = cursor.fetchall()
+    if not product_rows:
+        return [], "not_found", None, {}
+
+    # 성분 개수가 가장 많은 variant의 성분 목록 가져오기
+    best_product_id = product_rows[0].get("pill_product_id")
+    try:
+        cursor.execute(
+            """
+            SELECT cde.canonical_drug_name_ko, cde.canonical_drug_name_en, ppi.ingredient_name
+            FROM pill_product_ingredients ppi
+            JOIN canonical_drug_entities cde ON ppi.canonical_drug_id = cde.canonical_drug_id
+            WHERE ppi.pill_product_id = %s
+            """,
+            (best_product_id,),
+        )
+    except Exception:
+        return [], "not_found", None, {}
+
     rows = cursor.fetchall()
     ingredients = _clean_unique(
         [
@@ -490,6 +516,7 @@ def _lookup_legacy_product_ingredients(cursor, product_name: str) -> tuple[list[
 
 
 def _lookup_product_ingredients(cursor, product_name: str) -> tuple[list[str], str, str | None, dict[str, str]]:
+    # official_drug_products 테이블이 있으면 먼저 조회 (on-demand import 포함)
     official_ingredients, official_match_type, official_image_url, official_info = _lookup_official_product_ingredients(
         cursor,
         product_name,
@@ -510,10 +537,11 @@ def _lookup_product_ingredients(cursor, product_name: str) -> tuple[list[str], s
     if official_ingredients:
         return official_ingredients, official_match_type, official_image_url, official_info
 
+    # pill_products: 용량 무관 LIKE 조회 → 성분 개수 가장 많은 variant 선택
     legacy_ingredients, legacy_match_type, _, _ = _lookup_legacy_product_ingredients(cursor, product_name)
     if legacy_ingredients:
         return legacy_ingredients, legacy_match_type, official_image_url, official_info
-    return [], official_match_type, official_image_url, official_info
+    return [], "not_found", official_image_url, official_info
 
 
 def _lookup_canonical_ingredients(cursor, names: list[str]) -> list[str]:
